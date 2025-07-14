@@ -66,6 +66,7 @@ GPIO 10 - Solenoid Valve Control
 - `website.html` - Web interface
 - `PRD.md` - Product requirements
 - `api_reference.md` - Complete API documentation
+- `/documention/` - Folder with documentation for users
 
 ## Safety Features
 
