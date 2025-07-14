@@ -1,4 +1,4 @@
-# ESP32 Dirt Test Monitor
+# IoT Test Stand Monitor
 
 Automated filtration testing system for laboratory environments. Eliminates manual monitoring and provides continuous measurements over extended periods (72+ hours).
 
