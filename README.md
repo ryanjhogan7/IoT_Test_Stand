@@ -32,7 +32,7 @@ Traditional filtration testing requires constant operator monitoring and manual 
 ```
 GPIO 1  - Inlet Pressure Sensor
 GPIO 2  - Outlet Pressure Sensor
-GPIO 3  - Flow Sensor
+GPIO 5  - Flow Sensor
 GPIO 10 - Solenoid Valve Control
 ```
 
