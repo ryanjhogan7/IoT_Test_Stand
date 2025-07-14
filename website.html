@@ -208,6 +208,17 @@
             box-shadow: 0 6px 20px rgba(111, 66, 193, 0.4);
         }
         
+        .btn-calibrate {
+            background: linear-gradient(135deg, #17a2b8, #138496);
+            color: white;
+            box-shadow: 0 4px 15px rgba(23, 162, 184, 0.3);
+        }
+        
+        .btn-calibrate:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(23, 162, 184, 0.4);
+        }
+        
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -333,6 +344,21 @@
             border-color: #00d2ff;
             background: #0f2954;
             box-shadow: 0 0 0 3px rgba(0, 210, 255, 0.1);
+        }
+        
+        .calibration-section {
+            background: rgba(23, 162, 184, 0.1);
+            border: 2px solid #17a2b8;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .calibration-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
         }
         
         .chart-container {
@@ -512,6 +538,10 @@
             .settings-grid {
                 grid-template-columns: 1fr;
             }
+            
+            .calibration-controls {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -577,8 +607,36 @@
                 </div>
                 <div class="setting-item">
                     <label class="setting-label">Data Logging Interval (seconds)</label>
-                    <input type="number" id="updateInterval" class="setting-input" value="1" min="0.5" max="120" step="0.5">
-                    <div style="font-size: 12px; color: #888; margin-top: 5px;">How often to save data points (0.5s - 120s, display updates in real-time)</div>
+                    <input type="number" id="updateInterval" class="setting-input" value="1" min="0.5" max="600" step="0.5">
+                    <div style="font-size: 12px; color: #888; margin-top: 5px;">How often to save data points (0.5s - 600s, display updates in real-time)</div>
+                </div>
+            </div>
+            
+            <!-- Calibration Section -->
+            <div class="calibration-section">
+                <h4 style="color: #17a2b8; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                    🔧 Sensor Calibration
+                </h4>
+                
+                <!-- Calibration Controls -->
+                <div class="calibration-controls">
+                    <button class="btn btn-calibrate" onclick="startCalibration('flow')" id="calibrateFlowBtn">
+                        🌊 Calibrate Flow Sensor
+                    </button>
+                    <button class="btn btn-calibrate" onclick="startCalibration('pressure')" id="calibratePressureBtn">
+                        📊 Calibrate Pressure Sensors
+                    </button>
+                    <button class="btn btn-export" onclick="showRawVoltages()" id="showVoltagesBtn">
+                        ⚡ Show Raw Voltages
+                    </button>
+                </div>
+                
+                <div style="margin-top: 15px; padding: 10px; background: rgba(255, 193, 7, 0.1); border-radius: 6px; border-left: 4px solid #ffc107;">
+                    <div style="font-size: 12px; opacity: 0.9;">
+                        <strong>💡 Calibration Tips:</strong> Use known reference values for best accuracy. 
+                        Flow calibration needs a known flow rate. Pressure calibration requires a calibrated pressure source.
+                        Raw voltages help diagnose sensor connection issues (normal range: 0.66V - 3.30V).
+                    </div>
                 </div>
             </div>
         </div>
@@ -658,7 +716,7 @@
     </div>
 
 <script>
-// Fixed ESP32 Monitor - Proper Update Interval Implementation
+// Fixed ESP32 Monitor - Proper Update Interval Implementation WITH FULL CALIBRATION
 let connected = false;
 let testRunning = false;
 let testPaused = false;
@@ -686,12 +744,13 @@ const API_ENDPOINTS = {
     stop: '/api/stop',
     reset: '/api/reset',
     data: '/api/data',
-    config: '/api/config'
+    config: '/api/config',
+    calibrate: '/api/calibrate'
 };
 
 // Initialize when page loads
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('ESP32 Monitor - Fixed Update Interval Version');
+    console.log('ESP32 Monitor - Complete Version with Calibration');
     startClock();
     setupEventListeners();
     updateStatus();
@@ -752,7 +811,7 @@ function setupEventListeners() {
     
     document.getElementById('updateInterval').addEventListener('change', function() {
         const newInterval = parseFloat(this.value);
-        if (newInterval >= 0.5 && newInterval <= 120) {
+        if (newInterval >= 0.5 && newInterval <= 600) {
             dataLoggingInterval = newInterval;
             console.log(`Data logging interval changed to ${dataLoggingInterval} seconds`);
             
@@ -763,11 +822,482 @@ function setupEventListeners() {
             }
         } else {
             // Reset to valid range if invalid value entered
-            this.value = Math.max(0.5, Math.min(120, newInterval));
-            showAlert('Data logging interval must be between 0.5 and 120 seconds');
+            this.value = Math.max(0.5, Math.min(600, newInterval));
+            showAlert('Data logging interval must be between 0.5 and 600 seconds');
         }
     });
 }
+
+// CALIBRATION FUNCTIONS - COMPLETE IMPLEMENTATION
+// Start calibration
+async function startCalibration(sensorType) {
+    if (!connected) {
+        showAlert('Please connect to ESP32 first');
+        return;
+    }
+    
+    if (testRunning) {
+        showAlert('Please stop the test before calibrating sensors');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${esp32BaseUrl}${API_ENDPOINTS.calibrate}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                type: sensorType,
+                mode: 'start'
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            showCalibrationModal(sensorType);
+        } else {
+            throw new Error(data.error || 'Failed to start calibration');
+        }
+    } catch (error) {
+        showAlert(`Calibration start failed: ${error.message}`);
+    }
+}
+
+// Show calibration modal - COMPLETE IMPLEMENTATION
+function showCalibrationModal(sensorType) {
+    const sensorName = sensorType === 'flow' ? 'Flow Sensor' : 'Pressure Sensors';
+    const units = sensorType === 'flow' ? 'L/min' : 'PSI';
+    
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.8); display: flex;
+        justify-content: center; align-items: center; z-index: 10000;
+    `;
+    
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: #16213e; border: 2px solid #17a2b8; border-radius: 15px;
+        padding: 2rem; max-width: 700px; color: white;
+        box-shadow: 0 10px 30px rgba(23, 162, 184, 0.3);
+        max-height: 90vh; overflow-y: auto;
+    `;
+    
+    content.innerHTML = `
+        <h3 style="color: #17a2b8; margin-bottom: 1rem; text-align: center;">
+            🔧 ${sensorName} Calibration
+        </h3>
+        
+        <!-- Step 1: Set Range -->
+        <div id="step1" style="display: block;">
+            <div style="background: rgba(23, 162, 184, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
+                <h4 style="color: #17a2b8; margin: 0;">Step 1: Define Measurement Range</h4>
+                <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">
+                    Set the minimum and maximum values you want to measure
+                </p>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                <div>
+                    <label style="display: block; margin-bottom: 8px; font-weight: bold; color: #17a2b8;">
+                        Minimum ${units}:
+                    </label>
+                    <input type="number" id="minRange" style="
+                        width: 100%; padding: 12px; background: #0a2346; border: 2px solid #17a2b8; 
+                        border-radius: 8px; color: white; font-size: 16px; box-sizing: border-box;
+                    " value="${sensorType === 'flow' ? '0' : '0'}" step="0.1">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 8px; font-weight: bold; color: #17a2b8;">
+                        Maximum ${units}:
+                    </label>
+                    <input type="number" id="maxRange" style="
+                        width: 100%; padding: 12px; background: #0a2346; border: 2px solid #17a2b8; 
+                        border-radius: 8px; color: white; font-size: 16px; box-sizing: border-box;
+                    " value="${sensorType === 'flow' ? '10' : '50'}" step="0.1">
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 15px; justify-content: center;">
+                <button onclick="setRange('${sensorType}')" style="
+                    background: #28a745; color: white; border: none; padding: 12px 24px; 
+                    border-radius: 8px; font-weight: bold; cursor: pointer;
+                ">
+                    ✅ Set Range & Continue
+                </button>
+                
+                <button onclick="cancelCalibration()" style="
+                    background: #dc3545; color: white; border: none; padding: 12px 24px; 
+                    border-radius: 8px; font-weight: bold; cursor: pointer;
+                ">
+                    ❌ Cancel
+                </button>
+            </div>
+        </div>
+        
+        <!-- Step 2: Verification (hidden initially) -->
+        <div id="step2" style="display: none;">
+            <div style="background: rgba(23, 162, 184, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
+                <h4 style="color: #17a2b8; margin: 0;">Step 2: Verify Calibration</h4>
+                <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">
+                    Apply a known value and compare with calculated reading
+                </p>
+            </div>
+            
+            <div style="background: rgba(15, 52, 96, 0.3); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h5 style="color: #00d2ff; margin-bottom: 10px;">📊 Current Range Settings</h5>
+                <div style="font-family: monospace; font-size: 14px;">
+                    <div>Minimum: <span id="displayMinRange">--</span> ${units}</div>
+                    <div>Maximum: <span id="displayMaxRange">--</span> ${units}</div>
+                </div>
+            </div>
+            
+            <div style="background: rgba(15, 52, 96, 0.3); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h5 style="color: #00d2ff; margin-bottom: 10px;">📈 Live Readings</h5>
+                <div style="font-family: monospace; font-size: 14px;" id="liveReadings">
+                    Refreshing...
+                </div>
+                <button onclick="refreshReadings('${sensorType}')" style="
+                    background: #17a2b8; color: white; border: none; padding: 8px 16px; 
+                    border-radius: 6px; margin-top: 10px; cursor: pointer;
+                ">
+                    🔄 Refresh
+                </button>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 8px; font-weight: bold; color: #17a2b8;">
+                    Enter Actual Measured Value (${units}):
+                </label>
+                <input type="number" id="actualValue" style="
+                    width: 100%; padding: 12px; background: #0a2346; border: 2px solid #17a2b8; 
+                    border-radius: 8px; color: white; font-size: 16px; box-sizing: border-box;
+                " step="0.01" placeholder="Enter the true measured value">
+                <div style="font-size: 12px; opacity: 0.8; margin-top: 5px;">
+                    Apply a known ${sensorType === 'flow' ? 'flow rate' : 'pressure'} and enter the actual value here
+                </div>
+            </div>
+            
+            <!-- Comparison Results (hidden initially) -->
+            <div id="comparisonResults" style="display: none; margin-bottom: 20px;"></div>
+            
+            <div style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+                <button onclick="compareValues('${sensorType}')" style="
+                    background: #ffc107; color: black; border: none; padding: 12px 24px; 
+                    border-radius: 8px; font-weight: bold; cursor: pointer;
+                ">
+                    🔍 Compare Values
+                </button>
+                
+                <button onclick="finishCalibration('${sensorType}')" id="finishBtn" style="
+                    background: #28a745; color: white; border: none; padding: 12px 24px; 
+                    border-radius: 8px; font-weight: bold; cursor: pointer;
+                " disabled>
+                    ✅ Accept & Save Calibration
+                </button>
+                
+                <button onclick="goBackToStep1()" style="
+                    background: #6c757d; color: white; border: none; padding: 12px 24px; 
+                    border-radius: 8px; font-weight: bold; cursor: pointer;
+                ">
+                    ⬅ Back to Range
+                </button>
+                
+                <button onclick="cancelCalibration()" style="
+                    background: #dc3545; color: white; border: none; padding: 12px 24px; 
+                    border-radius: 8px; font-weight: bold; cursor: pointer;
+                ">
+                    ❌ Cancel
+                </button>
+            </div>
+        </div>
+    `;
+    
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+    
+    // Store modal reference
+    window.currentModal = modal;
+    window.currentSensorType = sensorType;
+    
+    // CALIBRATION MODAL FUNCTIONS
+    window.setRange = async function(sensorType) {
+        const minRange = parseFloat(document.getElementById('minRange').value);
+        const maxRange = parseFloat(document.getElementById('maxRange').value);
+        
+        if (isNaN(minRange) || isNaN(maxRange) || minRange >= maxRange) {
+            alert('Please enter valid min/max values (min must be less than max)');
+            return;
+        }
+        
+        try {
+            // Send range to ESP32
+            const response = await fetch(`${esp32BaseUrl}${API_ENDPOINTS.calibrate}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    type: sensorType,
+                    mode: 'setrange',
+                    minValue: minRange,
+                    maxValue: maxRange
+                })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                // Show step 2
+                document.getElementById('step1').style.display = 'none';
+                document.getElementById('step2').style.display = 'block';
+                
+                // Update display
+                document.getElementById('displayMinRange').textContent = minRange.toFixed(2);
+                document.getElementById('displayMaxRange').textContent = maxRange.toFixed(2);
+                
+                // Start refreshing readings
+                refreshReadings(sensorType);
+                
+                showAlert('Range set successfully! Now verify the calibration.', 'success');
+                setTimeout(hideAlert, 3000);
+            } else {
+                throw new Error(data.error || 'Failed to set range');
+            }
+        } catch (error) {
+            showAlert(`Failed to set range: ${error.message}`);
+        }
+    };
+    
+    window.refreshReadings = async function(sensorType) {
+        try {
+            const response = await fetch(`${esp32BaseUrl}${API_ENDPOINTS.status}`);
+            const data = await response.json();
+            
+            if (data.success && data.analogReadings && data.inputs) {
+                let voltage, calculatedValue;
+                
+                if (sensorType === 'flow') {
+                    voltage = data.analogReadings.flowVoltage;
+                    calculatedValue = data.inputs.flowScaled;
+                } else {
+                    voltage = (data.analogReadings.inletVoltage + data.analogReadings.outletVoltage) / 2;
+                    calculatedValue = (data.inputs.pressure1Scaled + data.inputs.pressure2Scaled) / 2;
+                }
+                
+                document.getElementById('liveReadings').innerHTML = `
+                    Raw Voltage: <strong>${voltage.toFixed(3)}V</strong><br>
+                    Calculated Value: <strong>${calculatedValue.toFixed(2)} ${sensorType === 'flow' ? 'L/min' : 'PSI'}</strong>
+                `;
+                
+                window.currentReadings = { voltage, calculatedValue };
+            }
+        } catch (error) {
+            document.getElementById('liveReadings').textContent = 'Error reading sensors';
+        }
+    };
+    
+    window.compareValues = function(sensorType) {
+        const actualValue = parseFloat(document.getElementById('actualValue').value);
+        
+        if (isNaN(actualValue)) {
+            alert('Please enter a valid actual measurement value');
+            return;
+        }
+        
+        if (!window.currentReadings || typeof window.currentReadings.calculatedValue === 'undefined') {
+            alert('Please refresh readings first to get current sensor data');
+            return;
+        }
+        
+        const calculatedValue = window.currentReadings.calculatedValue;
+        const difference = Math.abs(actualValue - calculatedValue);
+        const percentError = (difference / Math.max(actualValue, 0.01)) * 100;
+        
+        let resultClass, resultIcon, statusText, bgColor, borderColor, canFinish;
+        
+        if (percentError <= 2) {
+            resultClass = 'success';
+            resultIcon = '✅';
+            statusText = 'Excellent Accuracy';
+            bgColor = 'rgba(40, 167, 69, 0.2)';
+            borderColor = '#28a745';
+            canFinish = true;
+        } else if (percentError <= 5) {
+            resultClass = 'warning';
+            resultIcon = '⚠️';
+            statusText = 'Good Accuracy';
+            bgColor = 'rgba(255, 193, 7, 0.2)';
+            borderColor = '#ffc107';
+            canFinish = true;
+        } else {
+            resultClass = 'error';
+            resultIcon = '❌';
+            statusText = 'Poor Accuracy';
+            bgColor = 'rgba(220, 53, 69, 0.2)';
+            borderColor = '#dc3545';
+            canFinish = false;
+        }
+        
+        const resultsDiv = document.getElementById('comparisonResults');
+        resultsDiv.innerHTML = `
+            <div style="background: ${bgColor}; border: 2px solid ${borderColor}; border-radius: 8px; padding: 15px;">
+                <h5 style="margin: 0 0 10px 0; color: ${borderColor};">${resultIcon} ${statusText}</h5>
+                <div style="font-family: monospace; line-height: 1.6; font-size: 14px;">
+                    <div><strong>Actual Value:</strong> ${actualValue.toFixed(3)} ${sensorType === 'flow' ? 'L/min' : 'PSI'}</div>
+                    <div><strong>Calculated Value:</strong> ${calculatedValue.toFixed(3)} ${sensorType === 'flow' ? 'L/min' : 'PSI'}</div>
+                    <div><strong>Difference:</strong> ${difference.toFixed(3)} ${sensorType === 'flow' ? 'L/min' : 'PSI'}</div>
+                    <div><strong>Accuracy Error:</strong> ${percentError.toFixed(2)}%</div>
+                </div>
+                ${!canFinish ? '<p style="margin-top: 10px; font-size: 12px; opacity: 0.9;"><strong>Recommendation:</strong> Check sensor connections or adjust range settings.</p>' : ''}
+            </div>
+        `;
+        
+        resultsDiv.style.display = 'block';
+        
+        // Enable/disable finish button
+        const finishBtn = document.getElementById('finishBtn');
+        finishBtn.disabled = !canFinish;
+        finishBtn.style.background = canFinish ? '#28a745' : '#6c757d';
+        
+        // Store comparison data
+        window.comparisonData = {
+            actualValue,
+            calculatedValue,
+            percentError,
+            acceptable: canFinish
+        };
+    };
+    
+    window.finishCalibration = async function(sensorType) {
+        if (!window.comparisonData || !window.comparisonData.acceptable) {
+            alert('Please complete a successful comparison first');
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${esp32BaseUrl}${API_ENDPOINTS.calibrate}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    type: sensorType,
+                    mode: 'finish',
+                    actualValue: window.comparisonData.actualValue,
+                    calculatedValue: window.comparisonData.calculatedValue,
+                    accuracy: window.comparisonData.percentError
+                })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                showAlert(`🎉 ${sensorType === 'flow' ? 'Flow' : 'Pressure'} sensor calibration completed successfully! Error: ${window.comparisonData.percentError.toFixed(1)}%`, 'success');
+                cancelCalibration(); // Close modal
+                setTimeout(hideAlert, 5000);
+            } else {
+                throw new Error(data.error || 'Failed to complete calibration');
+            }
+        } catch (error) {
+            showAlert(`Calibration failed: ${error.message}`);
+        }
+    };
+    
+    window.goBackToStep1 = function() {
+        document.getElementById('step2').style.display = 'none';
+        document.getElementById('step1').style.display = 'block';
+        
+        // Clear comparison results
+        document.getElementById('comparisonResults').style.display = 'none';
+        document.getElementById('actualValue').value = '';
+        
+        // Reset finish button
+        const finishBtn = document.getElementById('finishBtn');
+        finishBtn.disabled = true;
+        finishBtn.style.background = '#6c757d';
+    };
+    
+    window.cancelCalibration = function() {
+        if (window.currentModal) {
+            document.body.removeChild(window.currentModal);
+            window.currentModal = null;
+            window.currentSensorType = null;
+            window.currentReadings = null;
+            window.comparisonData = null;
+        }
+    };
+}
+
+// Show raw voltages - COMPLETE IMPLEMENTATION
+async function showRawVoltages() {
+    if (!connected) {
+        showAlert('Please connect to ESP32 first');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${esp32BaseUrl}${API_ENDPOINTS.status}`);
+        const data = await response.json();
+        
+        if (data.success && data.analogReadings) {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0, 0, 0, 0.8); display: flex;
+                justify-content: center; align-items: center; z-index: 10000;
+            `;
+            
+            const content = document.createElement('div');
+            content.style.cssText = `
+                background: #16213e; border: 2px solid #533483; border-radius: 15px;
+                padding: 2rem; max-width: 500px; color: white;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            `;
+            
+            content.innerHTML = `
+                <h3 style="color: #00d2ff; margin-bottom: 1rem; text-align: center;">⚡ Raw Sensor Voltages</h3>
+                
+                <div style="background: rgba(15, 52, 96, 0.3); padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                    <div style="font-family: monospace; line-height: 2; font-size: 16px;">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #533483; padding-bottom: 8px; margin-bottom: 8px;">
+                            <span><strong>Flow Sensor:</strong></span>
+                            <span style="color: #00d2ff;"><strong>${data.analogReadings.flowVoltage.toFixed(3)}V</strong></span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #533483; padding-bottom: 8px; margin-bottom: 8px;">
+                            <span><strong>Pressure Sensor 1:</strong></span>
+                            <span style="color: #ff6b6b;"><strong>${data.analogReadings.inletVoltage.toFixed(3)}V</strong></span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span><strong>Pressure Sensor 2:</strong></span>
+                            <span style="color: #ff6b6b;"><strong>${data.analogReadings.outletVoltage.toFixed(3)}V</strong></span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="background: rgba(255, 193, 7, 0.1); border-left: 4px solid #ffc107; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                    <div style="font-size: 13px; line-height: 1.4;">
+                        <strong>📏 Normal Range:</strong> 0.66V - 3.30V<br>
+                        <strong>🔍 Troubleshooting:</strong><br>
+                        • <strong>< 0.5V:</strong> Sensor disconnected<br>
+                        • <strong>> 3.5V:</strong> Sensor overload<br>
+                        • <strong>Stable:</strong> Normal operation
+                    </div>
+                </div>
+                
+                <div style="text-align: center;">
+                    <button onclick="this.parentElement.parentElement.parentElement.remove()" style="
+                        background: #6c757d; color: white; border: none; padding: 10px 20px; 
+                        border-radius: 8px; cursor: pointer;
+                    ">
+                        ❌ Close
+                    </button>
+                </div>
+            `;
+            
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+        } else {
+            showAlert('Could not retrieve voltage readings from ESP32');
+        }
+    } catch (error) {
+        showAlert(`Error reading voltages: ${error.message}`);
+    }
+}
+// END CALIBRATION FUNCTIONS
 
 // Connect to ESP32
 async function connectToESP32() {
@@ -850,6 +1380,9 @@ function enableControls(enable) {
     document.getElementById('startBtn').disabled = !enable;
     document.getElementById('resetBtn').disabled = !enable;
     document.getElementById('exportBtn').disabled = !enable;
+    document.getElementById('calibrateFlowBtn').disabled = !enable;
+    document.getElementById('calibratePressureBtn').disabled = !enable;
+    document.getElementById('showVoltagesBtn').disabled = !enable;
     
     const sensorStatus = document.getElementById('sensorStatus');
     if (enable) {
@@ -861,7 +1394,7 @@ function enableControls(enable) {
     }
 }
 
-// Start test
+// Test control functions
 async function startTest() {
     if (!connected) {
         showAlert('Please connect to ESP32 first');
@@ -905,7 +1438,6 @@ async function startTest() {
     }
 }
 
-// Stop test
 async function stopTest() {
     if (!connected) return;
     
@@ -930,7 +1462,6 @@ async function stopTest() {
     }
 }
 
-// Reset test with confirmation
 async function resetTest() {
     if (!connected) return;
     
@@ -1167,7 +1698,7 @@ function processData(data) {
         // Update chart with new data
         updateChart(logEntry.time, logEntry.flow, logEntry.pressure);
         
-        if (dataLog.length > 1000) { // Keep more data points for longer tests
+        if (dataLog.length > 2000) { // Keep more data points for longer tests
             dataLog.shift();
         }
         
@@ -1957,7 +2488,8 @@ window.addEventListener('beforeunload', function() {
     if (updateInterval) clearInterval(updateInterval);
     if (clockInterval) clearInterval(clockInterval);
 });
+
+console.log('ESP32 Monitor - Complete Version with Full Calibration System Loaded');
 </script>
 </body>
 </html>
-                
