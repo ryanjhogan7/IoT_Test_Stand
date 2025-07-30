@@ -1,13 +1,13 @@
 /*
- * ESP32 Dirt Test Monitor - Complete Backend
+ * IoT Column Stand - Complete Backend with One-Point Calibration
  * 
  * Copy this entire code to your Arduino IDE and upload to ESP32
  * 
- * ESP32-C6 Pin Configuration (avoiding GPIO0):
- * - Pressure 1: GPIO 1 (ADC1_CH1) - Left side of board
- * - Pressure 2: GPIO 2 (ADC1_CH2) - Left side of board
- * - Flow Sensor: GPIO 5 (ADC1_CH5) - Left side of board
- * - Solenoid Control: GPIO 10 - Left side of board
+ * ESP32-C6 Pin Configuration:
+ * - Pressure 1: GPIO 1 (ADC1_CH1)
+ * - Pressure 2: GPIO 2 (ADC1_CH2)
+ * - Flow Sensor: GPIO 5 (ADC1_CH5)
+ * - Solenoid Control: GPIO 10
  */
 
 #include <WiFi.h>
@@ -17,16 +17,20 @@
 const char* WIFI_SSID = "PNRENGIOT";
 const char* WIFI_PASSWORD = "WP3MQJCsqYqstXm5";
 
-// Pin Definitions - ESP32-C6 safe ADC pins (avoiding GPIO0)
-const int PRESSURE1_PIN = 1;        // GPIO1 - ADC1_CH1 (left side)
-const int PRESSURE2_PIN = 2;        // GPIO2 - ADC1_CH2 (left side)  
-const int FLOW_SENSOR_PIN = 5;      // GPIO5 - ADC1_CH5 (left side)
-const int SOLENOID_PIN = 10;        // GPIO10c:\Users\e1260936\Downloads\testing_interface_prd.md - Digital output (left side)
+// Pin Definitions - ESP32-C6 safe ADC pins
+const int PRESSURE1_PIN = 1;        // GPIO1 - ADC1_CH1
+const int PRESSURE2_PIN = 2;        // GPIO2 - ADC1_CH2  
+const int FLOW_SENSOR_PIN = 5;      // GPIO5 - ADC1_CH5
+const int SOLENOID_PIN = 10;        // GPIO10 - Digital output
 
-// Sensor scaling - adjust these values for your sensors
-float pressure1_min = 0.0, pressure1_max = 50.0;
-float pressure2_min = 0.0, pressure2_max = 50.0;
-float flow_min = 0.0, flow_max = 10.0;
+// One-point calibration system - uses 0.534V as minimum
+const float MIN_VOLTAGE = 0.534;    // Fixed minimum voltage
+const float MAX_VOLTAGE = 3.30;     // Maximum sensor voltage
+
+// Sensor scaling - adjusted for new ranges
+float pressure1_min = 0.0, pressure1_max = 90.0;  // 0-90 PSI
+float pressure2_min = 0.0, pressure2_max = 90.0;  // 0-90 PSI
+float flow_min = 0.0, flow_max = 1.0;              // 0-1 L/min
 
 // System state variables for test management
 bool testRunning = false;
@@ -43,7 +47,7 @@ WebServer server(80);
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("ESP32 Dirt Test Monitor Starting...");
+    Serial.println("IoT Column Stand Starting...");
     
     // Setup pins
     pinMode(SOLENOID_PIN, OUTPUT);
@@ -69,6 +73,9 @@ void setup() {
     server.begin();
     
     Serial.println("System ready!");
+    Serial.println("Flow Range: 0-1 L/min");
+    Serial.println("Pressure Range: 0-90 PSI");
+    Serial.println("Calibration: One-point method with 0.534V minimum");
 }
 
 void loop() {
@@ -88,7 +95,7 @@ void setupServer() {
     server.on("/api/solenoid", HTTP_OPTIONS, handleCORS);
     server.on("/api/scaling", HTTP_OPTIONS, handleCORS);
     
-    // API endpoints - ALL endpoints that MAIN.html expects
+    // API endpoints
     server.on("/api/status", HTTP_GET, handleStatus);
     server.on("/api/start", HTTP_POST, handleStart);
     server.on("/api/stop", HTTP_POST, handleStop);
@@ -116,9 +123,12 @@ void handleCORS() {
 }
 
 void handleRoot() {
-    String html = "<h1>ESP32 Dirt Test Monitor</h1>";
+    String html = "<h1>IoT Column Stand</h1>";
     html += "<p>IP: " + WiFi.localIP().toString() + "</p>";
     html += "<p>Status: Online</p>";
+    html += "<p>Flow Range: 0-1 L/min</p>";
+    html += "<p>Pressure Range: 0-90 PSI</p>";
+    html += "<p>Calibration: One-point method</p>";
     html += "<p>Test API: <a href='/api/status'>/api/status</a></p>";
     html += "<h3>Available Endpoints:</h3>";
     html += "<ul>";
@@ -128,7 +138,8 @@ void handleRoot() {
     html += "<li>POST /api/reset - Reset test</li>";
     html += "<li>GET /api/data - Current sensor data</li>";
     html += "<li>GET/POST /api/config - Configuration</li>";
-    html += "<li>POST /api/calibrate - Sensor calibration</li>";
+    html += "<li>POST /api/calibrate - One-point sensor calibration</li>";
+    html += "<li>POST /api/solenoid - Manual solenoid control</li>";
     html += "</ul>";
     
     server.sendHeader("Access-Control-Allow-Origin", "*");
@@ -150,12 +161,13 @@ float readVoltage(int pin) {
     return (raw / 4095.0) * 3.3;
 }
 
+// One-point calibration scaling function
 float scaleValue(float voltage, float minVal, float maxVal) {
-    // Scale 0.66V-3.3V to minVal-maxVal
-    if (voltage < 0.66) voltage = 0.66;
-    if (voltage > 3.3) voltage = 3.3;
+    // Use fixed minimum voltage of 0.534V and scale to minVal-maxVal range
+    if (voltage < MIN_VOLTAGE) voltage = MIN_VOLTAGE;
+    if (voltage > MAX_VOLTAGE) voltage = MAX_VOLTAGE;
     
-    float normalized = (voltage - 0.66) / (3.3 - 0.66);
+    float normalized = (voltage - MIN_VOLTAGE) / (MAX_VOLTAGE - MIN_VOLTAGE);
     return minVal + (normalized * (maxVal - minVal));
 }
 
@@ -165,16 +177,16 @@ void handleStatus() {
     float p2_voltage = readVoltage(PRESSURE2_PIN);
     float flow_voltage = readVoltage(FLOW_SENSOR_PIN);
     
-    // Scale values
+    // Scale values using one-point calibration
     float p1_scaled = scaleValue(p1_voltage, pressure1_min, pressure1_max);
     float p2_scaled = scaleValue(p2_voltage, pressure2_min, pressure2_max);
     float flow_scaled = scaleValue(flow_voltage, flow_min, flow_max);
     
-    // Build JSON response to match MAIN.html expectations
+    // Build JSON response
     String response = "{";
     response += "\"success\":true,";
     response += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
-    response += "\"firmware\":\"v2.1-ESP32C6\",";
+    response += "\"firmware\":\"v2.1-Column-Stand\",";
     response += "\"uptime\":" + String(millis() / 1000) + ",";
     response += "\"freeMemory\":" + String(ESP.getFreeHeap()) + ",";
     response += "\"wifiConnected\":true,";
@@ -183,9 +195,9 @@ void handleStatus() {
     response += "\"testRunning\":" + String(testRunning ? "true" : "false") + ",";
     response += "\"testPaused\":" + String(testPaused ? "true" : "false") + ",";
     response += "\"valveOpen\":" + String(solenoidState ? "true" : "false") + ",";
-    response += "\"deviceName\":\"ESP32_C6_Monitor\",";
+    response += "\"deviceName\":\"IoT_Column_Stand\",";
     
-    // Add sensor inputs for simplified_esp32_dashboard compatibility
+    // Add sensor inputs
     response += "\"inputs\":{";
     response += "\"pressure1Scaled\":" + String(p1_scaled, 2) + ",";
     response += "\"pressure1Raw\":" + String(p1_voltage, 3) + ",";
@@ -207,10 +219,12 @@ void handleStatus() {
     response += "\"pressure2Min\":" + String(pressure2_min, 1) + ",";
     response += "\"pressure2Max\":" + String(pressure2_max, 1) + ",";
     response += "\"flowMin\":" + String(flow_min, 1) + ",";
-    response += "\"flowMax\":" + String(flow_max, 1);
+    response += "\"flowMax\":" + String(flow_max, 1) + ",";
+    response += "\"minVoltage\":" + String(MIN_VOLTAGE, 3) + ",";
+    response += "\"maxVoltage\":" + String(MAX_VOLTAGE, 3);
     response += "},";
     
-    // Add analog readings section for MAIN.html
+    // Add analog readings section
     response += "\"analogReadings\":{";
     response += "\"flowVoltage\":" + String(flow_voltage, 3) + ",";
     response += "\"inletVoltage\":" + String(p1_voltage, 3) + ",";
@@ -222,7 +236,7 @@ void handleStatus() {
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", response);
     
-    Serial.println("Status: P1=" + String(p1_scaled,1) + " P2=" + String(p2_scaled,1) + " Flow=" + String(flow_scaled,1));
+    Serial.println("Status: P1=" + String(p1_scaled,1) + " P2=" + String(p2_scaled,1) + " Flow=" + String(flow_scaled,2));
 }
 
 void handleStart() {
@@ -335,7 +349,7 @@ void handleData() {
     float p2_voltage = readVoltage(PRESSURE2_PIN);
     float flow_voltage = readVoltage(FLOW_SENSOR_PIN);
     
-    // Scale values
+    // Scale values using one-point calibration
     float p1_scaled = scaleValue(p1_voltage, pressure1_min, pressure1_max);
     float p2_scaled = scaleValue(p2_voltage, pressure2_min, pressure2_max);
     float flow_scaled = scaleValue(flow_voltage, flow_min, flow_max);
@@ -366,7 +380,7 @@ void handleData() {
         Serial.println("AUTO-SHUTDOWN: Pressure threshold exceeded (" + String(pressureDrop) + " >= " + String(pressureThreshold) + ")");
     }
     
-    // Build response matching MAIN.html expectations
+    // Build response
     String response = "{";
     response += "\"success\":true,";
     response += "\"timestamp\":" + String(millis()) + ",";
@@ -399,14 +413,16 @@ void handleConfigGet() {
     response += "\"success\":true,";
     response += "\"pressureThreshold\":" + String(pressureThreshold, 1) + ",";
     response += "\"updateInterval\":1,";
-    response += "\"deviceName\":\"ESP32_C6_Monitor\",";
+    response += "\"deviceName\":\"IoT_Column_Stand\",";
     response += "\"scaling\":{";
     response += "\"pressure1Min\":" + String(pressure1_min, 1) + ",";
     response += "\"pressure1Max\":" + String(pressure1_max, 1) + ",";
     response += "\"pressure2Min\":" + String(pressure2_min, 1) + ",";
     response += "\"pressure2Max\":" + String(pressure2_max, 1) + ",";
     response += "\"flowMin\":" + String(flow_min, 1) + ",";
-    response += "\"flowMax\":" + String(flow_max, 1);
+    response += "\"flowMax\":" + String(flow_max, 1) + ",";
+    response += "\"minVoltage\":" + String(MIN_VOLTAGE, 3) + ",";
+    response += "\"maxVoltage\":" + String(MAX_VOLTAGE, 3);
     response += "}";
     response += "}";
     
@@ -438,17 +454,23 @@ void handleConfigPost() {
     server.send(200, "application/json", response);
 }
 
+// ONE-POINT CALIBRATION HANDLER
 void handleCalibrate() {
     if (server.hasArg("plain")) {
         String body = server.arg("plain");
         Serial.println("Calibration request: " + body);
         
-        // Parse calibration data
+        // Parse calibration mode
+        String mode = "";
         String type = "";
-        float actualValue = 0.0;
-        float calculatedValue = 0.0;
-        float percentError = 0.0;
-        bool confirmed = false;
+        float referenceValue = 0.0;
+        float referenceVoltage = 0.0;
+        
+        int modePos = body.indexOf("\"mode\":\"");
+        if (modePos >= 0) {
+            int endPos = body.indexOf("\"", modePos + 8);
+            mode = body.substring(modePos + 8, endPos);
+        }
         
         int typePos = body.indexOf("\"type\":\"");
         if (typePos >= 0) {
@@ -456,66 +478,62 @@ void handleCalibrate() {
             type = body.substring(typePos + 8, endPos);
         }
         
-        int actualPos = body.indexOf("\"actualValue\":");
-        if (actualPos >= 0) {
-            int commaPos = body.indexOf(',', actualPos);
-            if (commaPos == -1) commaPos = body.indexOf('}', actualPos);
-            actualValue = body.substring(actualPos + 14, commaPos).toFloat();
-        }
-        
-        int calculatedPos = body.indexOf("\"calculatedValue\":");
-        if (calculatedPos >= 0) {
-            int commaPos = body.indexOf(',', calculatedPos);
-            if (commaPos == -1) commaPos = body.indexOf('}', calculatedPos);
-            calculatedValue = body.substring(calculatedPos + 18, commaPos).toFloat();
-        }
-        
-        int errorPos = body.indexOf("\"percentError\":");
-        if (errorPos >= 0) {
-            int commaPos = body.indexOf(',', errorPos);
-            if (commaPos == -1) commaPos = body.indexOf('}', errorPos);
-            percentError = body.substring(errorPos + 15, commaPos).toFloat();
-        }
-        
-        int confirmedPos = body.indexOf("\"confirmed\":true");
-        if (confirmedPos >= 0) {
-            confirmed = true;
-        }
-        
-        Serial.println("Calibration details:");
-        Serial.println("Type: " + type);
-        Serial.println("Actual: " + String(actualValue, 3));
-        Serial.println("Calculated: " + String(calculatedValue, 3));
-        Serial.println("Error: " + String(percentError, 2) + "%");
-        Serial.println("Confirmed: " + String(confirmed ? "true" : "false"));
-        
-        // Store calibration results (in production, save to EEPROM)
-        if (confirmed && percentError <= 5.0) {
-            Serial.println("✅ Calibration accepted and stored");
-            
-            // Optional: Fine-tune scaling factors based on comparison
-            // This is where you could implement automatic scaling adjustment
-            // if the error is consistently in one direction
-            
-            if (type == "flow") {
-                Serial.println("Flow sensor calibration confirmed with " + String(percentError, 1) + "% error");
-            } else if (type == "pressure1") {
-                Serial.println("Pressure sensor 1 calibration confirmed with " + String(percentError, 1) + "% error");
-            } else if (type == "pressure2") {
-                Serial.println("Pressure sensor 2 calibration confirmed with " + String(percentError, 1) + "% error");
+        if (mode == "onepoint") {
+            // One-point calibration
+            int refValuePos = body.indexOf("\"referenceValue\":");
+            if (refValuePos >= 0) {
+                int commaPos = body.indexOf(',', refValuePos);
+                if (commaPos == -1) commaPos = body.indexOf('}', refValuePos);
+                referenceValue = body.substring(refValuePos + 17, commaPos).toFloat();
             }
+            
+            int refVoltagePos = body.indexOf("\"referenceVoltage\":");
+            if (refVoltagePos >= 0) {
+                int commaPos = body.indexOf(',', refVoltagePos);
+                if (commaPos == -1) commaPos = body.indexOf('}', refVoltagePos);
+                referenceVoltage = body.substring(refVoltagePos + 19, commaPos).toFloat();
+            }
+            
+            // Perform one-point calibration
+            if (referenceValue > 0 && referenceVoltage > MIN_VOLTAGE) {
+                // Calculate new max value based on reference point
+                // Using proportion: (refVoltage - MIN_VOLTAGE) / (MAX_VOLTAGE - MIN_VOLTAGE) = refValue / newMax
+                // Solving for newMax: newMax = refValue * (MAX_VOLTAGE - MIN_VOLTAGE) / (refVoltage - MIN_VOLTAGE)
+                
+                float voltageRange = referenceVoltage - MIN_VOLTAGE;
+                float newMaxValue = referenceValue * (MAX_VOLTAGE - MIN_VOLTAGE) / voltageRange;
+                
+                // Update scaling based on sensor type
+                if (type == "flow") {
+                    flow_max = newMaxValue;
+                    Serial.println("Flow sensor calibrated: 0-" + String(flow_max, 2) + " L/min");
+                    Serial.println("Reference point: " + String(referenceValue, 2) + " L/min at " + String(referenceVoltage, 3) + "V");
+                } else if (type == "pressure") {
+                    pressure1_max = newMaxValue;
+                    pressure2_max = newMaxValue;
+                    Serial.println("Pressure sensors calibrated: 0-" + String(pressure1_max, 1) + " PSI");
+                    Serial.println("Reference point: " + String(referenceValue, 1) + " PSI at " + String(referenceVoltage, 3) + "V");
+                }
+                
+                Serial.println("One-point calibration completed successfully");
+                Serial.println("Voltage range: " + String(MIN_VOLTAGE, 3) + "V - " + String(referenceVoltage, 3) + "V");
+                Serial.println("Value range: 0 - " + String(newMaxValue, 2));
+            }
+        } else if (mode == "start") {
+            Serial.println("Calibration mode started for " + type + " sensor");
         }
     }
     
     String response = "{";
     response += "\"success\":true,";
-    response += "\"message\":\"Calibration process completed\"";
+    response += "\"message\":\"One-point calibration completed\"";
     response += "}";
     
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", response);
 }
 
+// MANUAL SOLENOID CONTROL FOR FLOW CALIBRATION
 void handleSolenoid() {
     if (server.hasArg("plain")) {
         String body = server.arg("plain");
@@ -524,11 +542,11 @@ void handleSolenoid() {
         if (body.indexOf("\"state\":true") >= 0) {
             solenoidState = true;
             digitalWrite(SOLENOID_PIN, HIGH);
-            Serial.println("Solenoid ON");
+            Serial.println("Manual Solenoid ON (for calibration)");
         } else if (body.indexOf("\"state\":false") >= 0) {
             solenoidState = false;
             digitalWrite(SOLENOID_PIN, LOW);
-            Serial.println("Solenoid OFF");
+            Serial.println("Manual Solenoid OFF");
         }
     }
     
