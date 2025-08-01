@@ -30,7 +30,7 @@ const float MAX_VOLTAGE = 3.30;     // Maximum sensor voltage
 // Sensor scaling - adjusted for new ranges
 float pressure1_min = 0.0, pressure1_max = 90.0;  // 0-90 PSI
 float pressure2_min = 0.0, pressure2_max = 90.0;  // 0-90 PSI
-float flow_min = 0.0, flow_max = 1.0;              // 0-1 L/min
+float flow_min = 0.0, flow_max = 12.0;              // 0-12 L/min
 
 // System state variables for test management
 bool testRunning = false;
