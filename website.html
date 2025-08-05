@@ -1,766 +1,2109 @@
-/*
- * ESP32 Dirt Test Monitor - Enhanced Backend with 5-Second Pressure Delay
- * 
- * NEW FEATURES:
- * - Pressure threshold up to 80 PSI
- * - 5-second sustained pressure requirement before auto-shutdown
- * - Real-time configuration updates for pressure threshold and data logging interval
- * - Enhanced pressure monitoring with violation tracking
- * 
- * ESP32-C6 Pin Configuration:
- * - Pressure 1: GPIO 1 (ADC1_CH1)
- * - Pressure 2: GPIO 2 (ADC1_CH2)
- * - Flow Sensor: GPIO 5 (ADC1_CH5)
- * - Solenoid Control: GPIO 10
- */
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Column Stand</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            color: white;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 25px;
+            background: linear-gradient(135deg, #16213e, #1a2540);
+            border-radius: 15px;
+            border: 1px solid rgba(83, 52, 131, 0.3);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .connection-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        
+        .connection-status.connected {
+            background: rgba(40, 167, 69, 0.2);
+            border: 2px solid #28a745;
+            color: #28a745;
+        }
+        
+        .connection-status.disconnected {
+            background: rgba(220, 53, 69, 0.2);
+            border: 2px solid #dc3545;
+            color: #dc3545;
+        }
+        
+        .connection-status.connecting {
+            background: rgba(255, 193, 7, 0.2);
+            border: 2px solid #ffc107;
+            color: #ffc107;
+        }
+        
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .metric-card {
+            background: linear-gradient(135deg, #0f3460, #1a4080);
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            border: 2px solid #533483;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #00d2ff, #3a7bd5);
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 210, 255, 0.2);
+        }
+        
+        .metric-label {
+            font-size: 14px;
+            opacity: 0.8;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .metric-value {
+            font-size: 32px;
+            font-weight: bold;
+            margin: 15px 0;
+            color: #00d2ff;
+            text-shadow: 0 0 10px rgba(0, 210, 255, 0.3);
+        }
+        
+        .metric-unit {
+            font-size: 14px;
+            opacity: 0.7;
+        }
+        
+        .controls {
+            background: linear-gradient(135deg, #16213e, #1a2540);
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            margin-bottom: 30px;
+            border: 1px solid rgba(83, 52, 131, 0.3);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .control-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        
+        .control-row:last-child {
+            margin-bottom: 0;
+        }
+        
+        .btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            text-transform: uppercase;
+            min-width: 140px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+        
+        .btn:hover::before {
+            left: 100%;
+        }
+        
+        .btn-start {
+            background: linear-gradient(135deg, #28a745, #20c997);
+            color: white;
+            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+        }
+        
+        .btn-start:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
+        }
+        
+        .btn-stop {
+            background: linear-gradient(135deg, #dc3545, #e74c3c);
+            color: white;
+            box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+        }
+        
+        .btn-stop:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
+        }
+        
+        .btn-reset {
+            background: linear-gradient(135deg, #ffc107, #f39c12);
+            color: black;
+            box-shadow: 0 4px 15px rgba(255, 193, 7, 0.3);
+        }
+        
+        .btn-reset:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 193, 7, 0.4);
+        }
+        
+        .btn-export {
+            background: linear-gradient(135deg, #6f42c1, #8e44ad);
+            color: white;
+            box-shadow: 0 4px 15px rgba(111, 66, 193, 0.3);
+        }
+        
+        .btn-export:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(111, 66, 193, 0.4);
+        }
+        
+        .btn-calibrate {
+            background: linear-gradient(135deg, #17a2b8, #138496);
+            color: white;
+            box-shadow: 0 4px 15px rgba(23, 162, 184, 0.3);
+        }
+        
+        .btn-calibrate:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(23, 162, 184, 0.4);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            border-radius: 25px;
+            margin: 0 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-size: 14px;
+        }
+        
+        .status.running {
+            background: rgba(40, 167, 69, 0.2);
+            border: 2px solid #28a745;
+            color: #28a745;
+        }
+        
+        .status.stopped {
+            background: rgba(108, 117, 125, 0.2);
+            border: 2px solid #6c757d;
+            color: #6c757d;
+        }
+        
+        .status.paused {
+            background: rgba(255, 193, 7, 0.2);
+            border: 2px solid #ffc107;
+            color: #ffc107;
+        }
+        
+        .alert {
+            background: rgba(220, 53, 69, 0.15);
+            border: 2px solid #dc3545;
+            color: #dc3545;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: bold;
+            display: none;
+            animation: pulse 2s infinite;
+        }
+        
+        .alert.active {
+            display: block;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+        }
+        
+        .settings {
+            background: linear-gradient(135deg, #16213e, #1a2540);
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(83, 52, 131, 0.3);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .settings h3 {
+            margin-bottom: 25px;
+            color: #00d2ff;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+        }
+        
+        .setting-item {
+            background: rgba(15, 52, 96, 0.3);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(83, 52, 131, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        .setting-item:hover {
+            background: rgba(15, 52, 96, 0.5);
+            border-color: #00d2ff;
+            transform: translateY(-3px);
+        }
+        
+        .setting-label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 600;
+            color: #ffffff;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .setting-input {
+            width: 100%;
+            padding: 12px 15px;
+            background: #0a2346;
+            border: 2px solid #533483;
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-sizing: border-box;
+        }
+        
+        .setting-input:focus {
+            outline: none;
+            border-color: #00d2ff;
+            background: #0f2954;
+            box-shadow: 0 0 0 3px rgba(0, 210, 255, 0.1);
+        }
+        
+        .calibration-section {
+            background: rgba(23, 162, 184, 0.1);
+            border: 2px solid #17a2b8;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .calibration-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .chart-container {
+            background: linear-gradient(135deg, #16213e, #1a2540);
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(83, 52, 131, 0.3);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .chart-title {
+            color: #00d2ff;
+            font-size: 20px;
+            margin-bottom: 25px;
+            text-align: center;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .chart-canvas {
+            width: 100%;
+            height: 350px;
+            background: #0f3460;
+            border: 2px solid #533483;
+            border-radius: 12px;
+            position: relative;
+        }
+        
+        .chart-legend {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .legend-color {
+            width: 25px;
+            height: 4px;
+            border-radius: 2px;
+        }
+        
+        .legend-flow {
+            background: #00d2ff;
+        }
+        
+        .legend-pressure {
+            background: #ff6b6b;
+        }
+        
+        .data-log {
+            background: linear-gradient(135deg, #16213e, #1a2540);
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(83, 52, 131, 0.3);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .data-log h3 {
+            color: #00d2ff;
+            font-size: 20px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .log-table {
+            width: 100%;
+            border-collapse: collapse;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        .log-table th,
+        .log-table td {
+            padding: 12px 15px;
+            text-align: center;
+            border-bottom: 1px solid #533483;
+        }
+        
+        .log-table th {
+            background: #0f3460;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-size: 12px;
+            color: #00d2ff;
+        }
+        
+        .log-table td {
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        
+        .log-table tbody tr:hover {
+            background: rgba(15, 52, 96, 0.3);
+        }
+        
+        .warning {
+            color: #ffc107 !important;
+        }
+        
+        .critical {
+            color: #dc3545 !important;
+            font-weight: bold;
+        }
+        
+        .system-status {
+            background: rgba(15, 52, 96, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(83, 52, 131, 0.4);
+        }
+        
+        .system-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            font-size: 14px;
+        }
+        
+        .system-info-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .system-info-label {
+            opacity: 0.8;
+        }
+        
+        .system-info-value {
+            font-weight: bold;
+            color: #00d2ff;
+        }
+        
+        .debug-info {
+            background: rgba(15, 52, 96, 0.2);
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-family: monospace;
+            font-size: 12px;
+            border: 1px solid rgba(83, 52, 131, 0.4);
+        }
+        
+        @media (max-width: 768px) {
+            .metrics {
+                grid-template-columns: 1fr;
+            }
+            
+            .control-row {
+                flex-direction: column;
+                gap: 15px;
+            }
+            
+            .btn {
+                width: 100%;
+                max-width: 300px;
+            }
+            
+            .settings-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .calibration-controls {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔬 IoT Column Stand</h1>
+            <p>Real-time Flow & Pressure Analysis System</p>
+            <div class="connection-status" id="connectionStatus">
+                <span id="connectionIcon">🔄</span>
+                <span id="connectionText">Connecting...</span>
+            </div>
+        </div>
+        
+        <div id="alert" class="alert">
+            ⚠️ <span id="alertMessage">System Alert</span>
+        </div>
+        
+        <div class="system-status">
+            <h4 style="margin: 0 0 15px 0; color: #00d2ff;">📡 System Status</h4>
+            <div class="system-info">
+                <div class="system-info-item">
+                    <span class="system-info-label">IP Address:</span>
+                    <span class="system-info-value" id="systemIP">Not Connected</span>
+                </div>
+                <div class="system-info-item">
+                    <span class="system-info-label">Firmware:</span>
+                    <span class="system-info-value" id="systemFirmware">Unknown</span>
+                </div>
+                <div class="system-info-item">
+                    <span class="system-info-label">Uptime:</span>
+                    <span class="system-info-value" id="systemUptime">--</span>
+                </div>
+                <div class="system-info-item">
+                    <span class="system-info-label">Free Memory:</span>
+                    <span class="system-info-value" id="systemMemory">--</span>
+                </div>
+            </div>
+            
+            <!-- Debug Information -->
+            <div class="debug-info" id="debugInfo" style="display: none;">
+                <div><strong>Debug Info:</strong></div>
+                <div>Polling Rate: <span id="debugPollingRate">--</span>ms</div>
+                <div>Data Fetch Rate: <span id="debugDataFetch">--</span>/sec</div>
+                <div>Last Log Time: <span id="debugLastLog">--</span>s</div>
+                <div>Next Log Due: <span id="debugNextLog">--</span>s</div>
+            </div>
+            <button onclick="toggleDebugInfo()" title="Show/hide debug information" style="background: #6c757d; color: white; border: none; padding: 5px 10px; border-radius: 5px; font-size: 12px; margin-top: 10px;">
+                Toggle Debug Info
+            </button>
+        </div>
+        
+        <div class="settings">
+            <h3>⚙️ System Configuration</h3>
+            <div class="settings-grid">
+                <div class="setting-item">
+                    <label class="setting-label">System IP Address</label>
+                    <input type="text" id="systemAddress" class="setting-input" value="192.168.1.100" placeholder="e.g., 192.168.1.100">
+                </div>
+                <div class="setting-item">
+                    <label class="setting-label">Pressure Threshold (PSI)</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="number" id="pressureThreshold" class="setting-input" style="flex: 1;" value="20" min="5" max="80" step="0.5" title="Set pressure threshold (5-80 PSI)">
+                        <button onclick="updatePressureThreshold()" title="Send new pressure threshold to ESP32" style="background: #17a2b8; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap;">Update</button>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <label class="setting-label">Data Logging Interval (seconds)</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="number" id="updateInterval" class="setting-input" style="flex: 1;" value="1" min="0.5" max="600" step="0.5" title="Set data logging interval (0.5-600 seconds)">
+                        <button onclick="updateDataInterval()" title="Send new data logging interval to ESP32" style="background: #17a2b8; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap;">Update</button>
+                    </div>
+                    <div style="font-size: 12px; color: #888; margin-top: 5px;">How often to save data points (0.5s - 600s, display updates in real-time)</div>
+                </div>
+            </div>
+            
+            <!-- Calibration Section -->
+            <div class="calibration-section">
+                <h4 style="color: #17a2b8; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                    🔧 Sensor Calibration
+                </h4>
+                
+                <!-- Calibration Controls -->
+                <div class="calibration-controls">
+                    <button class="btn btn-calibrate" onclick="startCalibration('flow')" id="calibrateFlowBtn">
+                        🌊 Calibrate Flow Sensor
+                    </button>
+                    <button class="btn btn-calibrate" onclick="startCalibration('pressure')" id="calibratePressureBtn">
+                        📊 Calibrate Pressure Sensors
+                    </button>
+                    <button class="btn btn-export" onclick="showRawVoltages()" id="showVoltagesBtn">
+                        ⚡ Show Raw Voltages
+                    </button>
+                </div>
+                
+                <div style="margin-top: 15px; padding: 10px; background: rgba(255, 193, 7, 0.1); border-radius: 6px; border-left: 4px solid #ffc107;">
+                    <div style="font-size: 12px; opacity: 0.9;">
+                        <strong>💡 Calibration Tips:</strong> Use one-point calibration with known reference values. 
+                        Flow calibration includes manual solenoid control for testing. Pressure calibration requires a calibrated pressure source.
+                        Raw voltages help diagnose sensor connections (normal range: 0.534V - 3.30V).
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <div class="control-row">
+                <button id="connectBtn" class="btn btn-start" onclick="connectToSystem()">🔗 Connect to System</button>
+                <button id="startBtn" class="btn btn-start" onclick="startTest()" disabled>▶ Start Test</button>
+                <button id="stopBtn" class="btn btn-stop" onclick="stopTest()" disabled>⏸ Pause Test</button>
+                <button id="resetBtn" class="btn btn-reset" onclick="resetTest()" disabled>🔄 Reset</button>
+                <button id="exportBtn" class="btn btn-export" onclick="exportData()" disabled>📥 Export Data</button>
+            </div>
+            <div class="control-row">
+                <span id="testStatus" class="status stopped">⏹ Stopped</span>
+                <span id="valveStatus" class="status stopped">🚪 Valve: Closed</span>
+                <span id="sensorStatus" class="status stopped">📡 Sensors: Offline</span>
+            </div>
+        </div>
+        
+        <div class="metrics">
+            <div class="metric-card">
+                <div class="metric-label">⏱ Test Duration</div>
+                <div class="metric-value" id="elapsedTime">0s</div>
+                <div class="metric-unit">elapsed</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-label">💧 Flow Rate</div>
+                <div class="metric-value" id="flowRate">0.00</div>
+                <div class="metric-unit">L/min</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-label">📊 Pressure Drop</div>
+                <div class="metric-value" id="pressureDrop">0.0</div>
+                <div class="metric-unit">PSI</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-label">🪣 Total Volume</div>
+                <div class="metric-value" id="totalVolume">0.00</div>
+                <div class="metric-unit">gallons</div>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <div class="chart-title">📈 Real-time Data Visualization</div>
+            <canvas id="dataChart" class="chart-canvas"></canvas>
+            <div class="chart-legend">
+                <div class="legend-item">
+                    <div class="legend-color legend-flow"></div>
+                    <span>Flow Rate (L/min)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color legend-pressure"></div>
+                    <span>Pressure Drop (PSI)</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="data-log">
+            <h3>📋 Live Data Stream (Last 15 Readings)</h3>
+            <table class="log-table">
+                <thead>
+                    <tr>
+                        <th>⏰ Time (HH:MM:SS)</th>
+                        <th>💧 Flow (L/min)</th>
+                        <th>📊 Pressure (PSI)</th>
+                        <th>🪣 Volume (gal)</th>
+                    </tr>
+                </thead>
+                <tbody id="dataTableBody">
+                    <tr><td colspan="4">🔌 Connect to System to begin data logging</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 
-#include <WiFi.h>
-#include <WebServer.h>
+<script>
+// IoT Column Stand Monitor - One-Point Calibration System
+let connected = false;
+let testRunning = false;
+let testPaused = false;
+let elapsedSeconds = 0;
+let totalVolume = 0;
+let dataLog = [];
+let chartData = { labels: [], flow: [], pressure: [] };
+let updateInterval;
+let clockInterval;
+let connectionCheckInterval;
+let pressureThreshold = 20;
+let dataLoggingInterval = 1.0; // Default 1 second for data logging
+let systemBaseUrl = '';
+let chart = null;
 
-// Network Configuration
-const char* WIFI_SSID = "PNRENGIOT";
-const char* WIFI_PASSWORD = "WP3MQJCsqYqstXm5";
+// Timing variables for proper data logging
+let lastLogTime = 0;
+let testStartRealTime = 0;
+let dataFetchCount = 0;
+let lastDebugUpdate = 0;
 
-// Pin Definitions - ESP32-C6 safe ADC pins
-const int PRESSURE1_PIN = 1;        // GPIO1 - ADC1_CH1
-const int PRESSURE2_PIN = 2;        // GPIO2 - ADC1_CH2  
-const int FLOW_SENSOR_PIN = 5;      // GPIO5 - ADC1_CH5
-const int SOLENOID_PIN = 10;        // GPIO10 - Digital output
+// Pressure monitoring for 5-second delay
+let highPressureStartTime = 0;
+let isHighPressureActive = false;
 
-// Sensor scaling - adjust these values for your sensors
-float pressure1_min = 0.0, pressure1_max = 50.0;
-float pressure2_min = 0.0, pressure2_max = 50.0;
-float flow_min = 0.0, flow_max = 10.0;
+const API_ENDPOINTS = {
+    status: '/api/status',
+    start: '/api/start',
+    stop: '/api/stop',
+    reset: '/api/reset',
+    data: '/api/data',
+    config: '/api/config',
+    calibrate: '/api/calibrate'
+};
 
-// System state variables for test management
-bool testRunning = false;
-bool testPaused = false;
-unsigned long testStartTime = 0;
-unsigned long pausedDuration = 0;
-float totalVolume = 0.0;
-unsigned long lastDataTime = 0;
-float pressureThreshold = 20.0;  // Default threshold (now supports up to 80 PSI)
-
-// NEW: Enhanced pressure monitoring with 5-second delay
-unsigned long pressureViolationStartTime = 0;
-bool pressureViolationActive = false;
-const unsigned long PRESSURE_DELAY_MS = 5000;  // 5 seconds in milliseconds
-
-// System state
-bool solenoidState = false;
-WebServer server(80);
-
-void setup() {
-    Serial.begin(115200);
-    Serial.println("ESP32 Dirt Test Monitor - Enhanced Version Starting...");
-    Serial.println("NEW: 5-second pressure delay, 80 PSI max threshold");
+// Initialize when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('IoT Column Stand Monitor - One-Point Calibration Version');
+    startClock();
+    setupEventListeners();
+    updateStatus();
+    initializeChart();
     
-    // Setup pins
-    pinMode(SOLENOID_PIN, OUTPUT);
-    digitalWrite(SOLENOID_PIN, LOW);
+    const savedIP = localStorage.getItem('system_ip') || '192.168.1.100';
+    document.getElementById('systemAddress').value = savedIP;
+});
+
+// Simple clock - counts seconds when test is running
+function startClock() {
+    if (clockInterval) clearInterval(clockInterval);
     
-    // Setup ADC
-    analogReadResolution(12);
-    analogSetAttenuation(ADC_11db);
-    
-    // Connect WiFi
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.print("Connecting to WiFi");
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println();
-    Serial.print("Connected! IP: ");
-    Serial.println(WiFi.localIP());
-    
-    // Setup web server
-    setupServer();
-    server.begin();
-    
-    Serial.println("Enhanced system ready!");
-    Serial.println("Pressure threshold range: 5-80 PSI");
-    Serial.println("Pressure delay: 5 seconds sustained high pressure required");
+    clockInterval = setInterval(() => {
+        if (testRunning) {
+            elapsedSeconds++;
+            document.getElementById('elapsedTime').textContent = formatDuration(elapsedSeconds);
+        }
+        
+        // Update debug info every second
+        updateDebugInfo();
+    }, 1000);
 }
 
-void loop() {
-    server.handleClient();
-    
-    // NEW: Continuous pressure monitoring during test
-    if (testRunning) {
-        monitorPressureViolation();
+// Format duration into readable format
+function formatDuration(totalSeconds) {
+    if (totalSeconds < 60) {
+        return `${totalSeconds}s`;
+    } else if (totalSeconds < 3600) {
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${minutes}m ${seconds}s`;
+    } else {
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        return `${hours}h ${minutes}m`;
     }
-    
-    delay(10);
 }
 
-// NEW: Enhanced pressure monitoring function
-void monitorPressureViolation() {
-    // Read current pressure values
-    float p1_voltage = readVoltage(PRESSURE1_PIN);
-    float p2_voltage = readVoltage(PRESSURE2_PIN);
+// Format time as HH:MM:SS
+function formatTimeHMS(totalSeconds) {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
     
-    // Scale values
-    float p1_scaled = scaleValue(p1_voltage, pressure1_min, pressure1_max);
-    float p2_scaled = scaleValue(p2_voltage, pressure2_min, pressure2_max);
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+// Setup event listeners
+function setupEventListeners() {
+    document.getElementById('systemAddress').addEventListener('change', function() {
+        localStorage.setItem('system_ip', this.value);
+    });
     
-    // Calculate pressure drop
-    float pressureDrop = abs(p1_scaled - p2_scaled);
+    document.getElementById('pressureThreshold').addEventListener('change', function() {
+        pressureThreshold = parseFloat(this.value);
+    });
     
-    unsigned long currentTime = millis();
-    
-    if (pressureDrop >= pressureThreshold) {
-        if (!pressureViolationActive) {
-            // Start violation timer
-            pressureViolationActive = true;
-            pressureViolationStartTime = currentTime;
-            Serial.println("PRESSURE VIOLATION DETECTED: " + String(pressureDrop, 1) + 
-                          " PSI >= " + String(pressureThreshold, 1) + " PSI");
-            Serial.println("Starting 5-second countdown...");
+    document.getElementById('updateInterval').addEventListener('change', function() {
+        const newInterval = parseFloat(this.value);
+        if (newInterval >= 0.5 && newInterval <= 600) {
+            dataLoggingInterval = newInterval;
+            console.log(`Data logging interval changed to ${dataLoggingInterval} seconds`);
+            
+            // Reset timing variables when interval changes
+            if (testRunning) {
+                lastLogTime = elapsedSeconds;
+                console.log(`Reset log timing - next log due at ${lastLogTime + dataLoggingInterval}s`);
+            }
         } else {
-            // Check if violation has been sustained for 5+ seconds
-            unsigned long violationDuration = currentTime - pressureViolationStartTime;
+            // Reset to valid range if invalid value entered
+            this.value = Math.max(0.5, Math.min(600, newInterval));
+            showAlert('Data logging interval must be between 0.5 and 600 seconds');
+        }
+    });
+}
+
+// Global calibration modal functions - defined at global scope
+window.toggleSolenoid = async function(state) {
+    try {
+        const response = await fetch(`${systemBaseUrl}/api/solenoid`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ state: state })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            const statusDiv = document.getElementById('solenoidStatus');
+            if (statusDiv) {
+                statusDiv.textContent = `Status: ${state ? 'ON (Flow Active)' : 'OFF (No Flow)'}`;
+                statusDiv.style.color = state ? '#28a745' : '#dc3545';
+            }
             
-            if (violationDuration >= PRESSURE_DELAY_MS) {
-                // Sustained violation - trigger auto-shutdown
-                Serial.println("SUSTAINED PRESSURE VIOLATION FOR " + String(violationDuration / 1000.0, 1) + "s");
-                Serial.println("TRIGGERING AUTO-SHUTDOWN: " + String(pressureDrop, 1) + " PSI");
-                
-                // Stop the test
-                testRunning = false;
-                testPaused = true;
-                solenoidState = false;
-                digitalWrite(SOLENOID_PIN, LOW);
-                
-                // Reset violation tracking
-                pressureViolationActive = false;
-                pressureViolationStartTime = 0;
-                
-                Serial.println("AUTO-SHUTDOWN COMPLETE - Test paused for safety");
+            // Enable/disable buttons
+            const onBtn = document.getElementById('solenoidOnBtn');
+            const offBtn = document.getElementById('solenoidOffBtn');
+            if (onBtn) onBtn.disabled = state;
+            if (offBtn) offBtn.disabled = !state;
+        }
+    } catch (error) {
+        showAlert(`Solenoid control failed: ${error.message}`);
+    }
+};
+
+window.refreshReadings = async function(sensorType) {
+    try {
+        const response = await fetch(`${systemBaseUrl}${API_ENDPOINTS.status}`);
+        const data = await response.json();
+        
+        if (data.success && data.analogReadings && data.inputs) {
+            let voltage, calculatedValue;
+            
+            if (sensorType === 'flow') {
+                voltage = data.analogReadings.flowVoltage;
+                calculatedValue = data.inputs.flowScaled;
             } else {
-                // Log countdown every second
-                static unsigned long lastCountdownLog = 0;
-                if (currentTime - lastCountdownLog >= 1000) {
-                    float remainingTime = (PRESSURE_DELAY_MS - violationDuration) / 1000.0;
-                    Serial.println("Pressure violation countdown: " + String(remainingTime, 1) + "s remaining");
-                    lastCountdownLog = currentTime;
-                }
-            }
-        }
-    } else {
-        // Pressure is below threshold - reset violation tracking
-        if (pressureViolationActive) {
-            unsigned long violationDuration = currentTime - pressureViolationStartTime;
-            Serial.println("Pressure violation cleared after " + String(violationDuration / 1000.0, 1) + 
-                          "s. Current pressure: " + String(pressureDrop, 1) + " PSI");
-            pressureViolationActive = false;
-            pressureViolationStartTime = 0;
-        }
-    }
-}
-
-void setupServer() {
-    // Handle CORS preflight requests (OPTIONS method)
-    server.on("/api/status", HTTP_OPTIONS, handleCORS);
-    server.on("/api/start", HTTP_OPTIONS, handleCORS);
-    server.on("/api/stop", HTTP_OPTIONS, handleCORS);
-    server.on("/api/reset", HTTP_OPTIONS, handleCORS);
-    server.on("/api/data", HTTP_OPTIONS, handleCORS);
-    server.on("/api/config", HTTP_OPTIONS, handleCORS);
-    server.on("/api/calibrate", HTTP_OPTIONS, handleCORS);
-    server.on("/api/solenoid", HTTP_OPTIONS, handleCORS);
-    server.on("/api/scaling", HTTP_OPTIONS, handleCORS);
-    
-    // API endpoints
-    server.on("/api/status", HTTP_GET, handleStatus);
-    server.on("/api/start", HTTP_POST, handleStart);
-    server.on("/api/stop", HTTP_POST, handleStop);
-    server.on("/api/reset", HTTP_POST, handleReset);
-    server.on("/api/data", HTTP_GET, handleData);
-    server.on("/api/config", HTTP_GET, handleConfigGet);
-    server.on("/api/config", HTTP_POST, handleConfigPost);
-    server.on("/api/calibrate", HTTP_POST, handleCalibrate);
-    server.on("/api/solenoid", HTTP_POST, handleSolenoid);
-    server.on("/api/scaling", HTTP_POST, handleScaling);
-    
-    // Simple root page
-    server.on("/", HTTP_GET, handleRoot);
-    
-    // Handle all other OPTIONS requests
-    server.onNotFound(handleNotFound);
-}
-
-void handleCORS() {
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    server.sendHeader("Access-Control-Allow-Headers", "Content-Type, Accept");
-    server.sendHeader("Access-Control-Max-Age", "86400");
-    server.send(200, "text/plain", "");
-}
-
-void handleRoot() {
-    String html = "<h1>ESP32 Dirt Test Monitor - Enhanced</h1>";
-    html += "<p>IP: " + WiFi.localIP().toString() + "</p>";
-    html += "<p>Status: Online</p>";
-    html += "<p>Pressure Threshold: " + String(pressureThreshold, 1) + " PSI (Max: 80 PSI)</p>";
-    html += "<p>Pressure Delay: 5 seconds sustained required</p>";
-    html += "<p>Test API: <a href='/api/status'>/api/status</a></p>";
-    html += "<h3>Enhanced Features:</h3>";
-    html += "<ul>";
-    html += "<li>Pressure threshold up to 80 PSI</li>";
-    html += "<li>5-second sustained pressure requirement</li>";
-    html += "<li>Real-time configuration updates</li>";
-    html += "<li>Enhanced pressure violation tracking</li>";
-    html += "</ul>";
-    html += "<h3>Available Endpoints:</h3>";
-    html += "<ul>";
-    html += "<li>GET /api/status - System status</li>";
-    html += "<li>POST /api/start - Start test</li>";
-    html += "<li>POST /api/stop - Stop/pause test</li>";
-    html += "<li>POST /api/reset - Reset test</li>";
-    html += "<li>GET /api/data - Current sensor data</li>";
-    html += "<li>GET/POST /api/config - Configuration</li>";
-    html += "<li>POST /api/calibrate - Sensor calibration</li>";
-    html += "</ul>";
-    
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "text/html", html);
-}
-
-void handleNotFound() {
-    if (server.method() == HTTP_OPTIONS) {
-        handleCORS();
-    } else {
-        Serial.println("404 - Not Found: " + server.uri());
-        server.sendHeader("Access-Control-Allow-Origin", "*");
-        server.send(404, "application/json", "{\"success\":false,\"error\":\"Endpoint not found: " + server.uri() + "\"}");
-    }
-}
-
-float readVoltage(int pin) {
-    int raw = analogRead(pin);
-    return (raw / 4095.0) * 3.3;
-}
-
-float scaleValue(float voltage, float minVal, float maxVal) {
-    // Scale 0.66V-3.3V to minVal-maxVal
-    if (voltage < 0.66) voltage = 0.66;
-    if (voltage > 3.3) voltage = 3.3;
-    
-    float normalized = (voltage - 0.66) / (3.3 - 0.66);
-    return minVal + (normalized * (maxVal - minVal));
-}
-
-void handleStatus() {
-    // Read sensors
-    float p1_voltage = readVoltage(PRESSURE1_PIN);
-    float p2_voltage = readVoltage(PRESSURE2_PIN);
-    float flow_voltage = readVoltage(FLOW_SENSOR_PIN);
-    
-    // Scale values
-    float p1_scaled = scaleValue(p1_voltage, pressure1_min, pressure1_max);
-    float p2_scaled = scaleValue(p2_voltage, pressure2_min, pressure2_max);
-    float flow_scaled = scaleValue(flow_voltage, flow_min, flow_max);
-    
-    // Calculate pressure drop for status
-    float pressureDrop = abs(p1_scaled - p2_scaled);
-    
-    // Build JSON response with enhanced pressure monitoring info
-    String response = "{";
-    response += "\"success\":true,";
-    response += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
-    response += "\"firmware\":\"v2.2-Enhanced-ESP32C6\",";
-    response += "\"uptime\":" + String(millis() / 1000) + ",";
-    response += "\"freeMemory\":" + String(ESP.getFreeHeap()) + ",";
-    response += "\"wifiConnected\":true,";
-    response += "\"wifiRSSI\":" + String(WiFi.RSSI()) + ",";
-    response += "\"sensorsOnline\":true,";
-    response += "\"testRunning\":" + String(testRunning ? "true" : "false") + ",";
-    response += "\"testPaused\":" + String(testPaused ? "true" : "false") + ",";
-    response += "\"valveOpen\":" + String(solenoidState ? "true" : "false") + ",";
-    response += "\"deviceName\":\"ESP32_C6_Enhanced\",";
-    
-    // Add enhanced pressure monitoring status
-    response += "\"pressureMonitoring\":{";
-    response += "\"threshold\":" + String(pressureThreshold, 1) + ",";
-    response += "\"maxThreshold\":80,";
-    response += "\"delaySeconds\":5,";
-    response += "\"violationActive\":" + String(pressureViolationActive ? "true" : "false") + ",";
-    response += "\"currentPressureDrop\":" + String(pressureDrop, 1);
-    if (pressureViolationActive) {
-        unsigned long violationDuration = millis() - pressureViolationStartTime;
-        response += ",\"violationDuration\":" + String(violationDuration / 1000.0, 1);
-        response += ",\"remainingTime\":" + String((PRESSURE_DELAY_MS - violationDuration) / 1000.0, 1);
-    }
-    response += "},";
-    
-    // Add sensor inputs
-    response += "\"inputs\":{";
-    response += "\"pressure1Scaled\":" + String(p1_scaled, 2) + ",";
-    response += "\"pressure1Raw\":" + String(p1_voltage, 3) + ",";
-    response += "\"pressure2Scaled\":" + String(p2_scaled, 2) + ",";
-    response += "\"pressure2Raw\":" + String(p2_voltage, 3) + ",";
-    response += "\"flowScaled\":" + String(flow_scaled, 2) + ",";
-    response += "\"flowRaw\":" + String(flow_voltage, 3);
-    response += "},";
-    
-    // Add outputs section
-    response += "\"outputs\":{";
-    response += "\"solenoid\":" + String(solenoidState ? "true" : "false");
-    response += "},";
-    
-    // Add scaling configuration
-    response += "\"scaling\":{";
-    response += "\"pressure1Min\":" + String(pressure1_min, 1) + ",";
-    response += "\"pressure1Max\":" + String(pressure1_max, 1) + ",";
-    response += "\"pressure2Min\":" + String(pressure2_min, 1) + ",";
-    response += "\"pressure2Max\":" + String(pressure2_max, 1) + ",";
-    response += "\"flowMin\":" + String(flow_min, 1) + ",";
-    response += "\"flowMax\":" + String(flow_max, 1);
-    response += "},";
-    
-    // Add analog readings section
-    response += "\"analogReadings\":{";
-    response += "\"flowVoltage\":" + String(flow_voltage, 3) + ",";
-    response += "\"inletVoltage\":" + String(p1_voltage, 3) + ",";
-    response += "\"outletVoltage\":" + String(p2_voltage, 3);
-    response += "}";
-    
-    response += "}";
-    
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", response);
-    
-    Serial.println("Status: P1=" + String(p1_scaled,1) + " P2=" + String(p2_scaled,1) + 
-                   " Flow=" + String(flow_scaled,1) + " Drop=" + String(pressureDrop,1) + 
-                   " Threshold=" + String(pressureThreshold,1));
-}
-
-void handleStart() {
-    Serial.println("START endpoint called");
-    
-    if (server.hasArg("plain")) {
-        String body = server.arg("plain");
-        Serial.println("Start request body: " + body);
-        
-        // Check if this is a resume operation
-        bool isResume = body.indexOf("\"resume\":true") >= 0;
-        
-        if (isResume && testPaused) {
-            // Resume paused test
-            testRunning = true;
-            testPaused = false;
-            pausedDuration += (millis() - testStartTime);
-            solenoidState = true;
-            digitalWrite(SOLENOID_PIN, HIGH);
-            
-            // Reset pressure violation tracking when resuming
-            pressureViolationActive = false;
-            pressureViolationStartTime = 0;
-            
-            Serial.println("Test RESUMED from pause - Pressure monitoring reset");
-        } else if (!testRunning && !testPaused) {
-            // Start new test
-            testRunning = true;
-            testPaused = false;
-            testStartTime = millis();
-            pausedDuration = 0;
-            totalVolume = 0.0;
-            solenoidState = true;
-            digitalWrite(SOLENOID_PIN, HIGH);
-            lastDataTime = millis();
-            
-            // Reset pressure violation tracking for new test
-            pressureViolationActive = false;
-            pressureViolationStartTime = 0;
-            
-            // Parse pressure threshold if provided
-            int thresholdPos = body.indexOf("\"pressureThreshold\":");
-            if (thresholdPos >= 0) {
-                int commaPos = body.indexOf(',', thresholdPos);
-                if (commaPos == -1) commaPos = body.indexOf('}', thresholdPos);
-                float newThreshold = body.substring(thresholdPos + 20, commaPos).toFloat();
-                
-                // Validate threshold range (5-80 PSI)
-                if (newThreshold >= 5.0 && newThreshold <= 80.0) {
-                    pressureThreshold = newThreshold;
-                    Serial.println("Pressure threshold updated to: " + String(pressureThreshold, 1) + " PSI");
-                } else {
-                    Serial.println("Invalid pressure threshold: " + String(newThreshold, 1) + 
-                                 " PSI. Must be 5-80 PSI. Using current: " + String(pressureThreshold, 1));
-                }
+                voltage = (data.analogReadings.inletVoltage + data.analogReadings.outletVoltage) / 2;
+                calculatedValue = (data.inputs.pressure1Scaled + data.inputs.pressure2Scaled) / 2;
             }
             
-            Serial.println("New test STARTED with enhanced pressure monitoring");
-            Serial.println("Pressure threshold: " + String(pressureThreshold, 1) + " PSI with 5s delay");
+            const readingsDiv = document.getElementById('liveReadings');
+            if (readingsDiv) {
+                readingsDiv.innerHTML = `
+                    Raw Voltage: <strong>${voltage.toFixed(3)}V</strong><br>
+                    Current Reading: <strong>${calculatedValue.toFixed(2)} ${sensorType === 'flow' ? 'L/min' : 'PSI'}</strong>
+                `;
+            }
+            
+            window.currentReadings = { voltage, calculatedValue };
+        }
+    } catch (error) {
+        const readingsDiv = document.getElementById('liveReadings');
+        if (readingsDiv) {
+            readingsDiv.textContent = 'Error reading sensors';
         }
     }
-    
-    String response = "{";
-    response += "\"success\":true,";
-    response += "\"message\":\"Test " + String((testPaused ? "resumed" : "started")) + " successfully\",";
-    response += "\"testRunning\":true,";
-    response += "\"valveOpen\":true,";
-    response += "\"pressureThreshold\":" + String(pressureThreshold, 1) + ",";
-    response += "\"pressureDelaySeconds\":5";
-    response += "}";
-    
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", response);
-}
+};
 
-void handleStop() {
-    Serial.println("STOP endpoint called");
+window.performCalibration = async function(sensorType) {
+    const referenceInput = document.getElementById('referenceValue');
+    if (!referenceInput) return;
+    
+    const referenceValue = parseFloat(referenceInput.value);
+    
+    if (isNaN(referenceValue) || referenceValue <= 0) {
+        alert('Please enter a valid positive reference value');
+        return;
+    }
+    
+    if (!window.currentReadings || typeof window.currentReadings.voltage === 'undefined') {
+        alert('Please refresh readings first to get current sensor data');
+        return;
+    }
+    
+    const currentVoltage = window.currentReadings.voltage;
+    const minVoltage = 0.534; // Fixed minimum voltage
+    
+    if (currentVoltage <= minVoltage) {
+        alert(`Current voltage (${currentVoltage.toFixed(3)}V) is too low for calibration. Minimum is ${minVoltage}V`);
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${systemBaseUrl}${API_ENDPOINTS.calibrate}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                type: sensorType,
+                mode: 'onepoint',
+                referenceValue: referenceValue,
+                referenceVoltage: currentVoltage,
+                minVoltage: minVoltage,
+                maxValue: referenceValue
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            const resultsDiv = document.getElementById('calibrationResults');
+            if (resultsDiv) {
+                resultsDiv.innerHTML = `
+                    <div style="background: rgba(40, 167, 69, 0.2); border: 2px solid #28a745; border-radius: 8px; padding: 15px;">
+                        <h5 style="margin: 0 0 10px 0; color: #28a745;">✅ Calibration Complete</h5>
+                        <div style="font-family: monospace; line-height: 1.6; font-size: 14px;">
+                            <div><strong>Reference Point:</strong> ${referenceValue.toFixed(3)} ${sensorType === 'flow' ? 'L/min' : 'PSI'} at ${currentVoltage.toFixed(3)}V</div>
+                            <div><strong>Range:</strong> 0 - ${referenceValue.toFixed(1)} ${sensorType === 'flow' ? 'L/min' : 'PSI'}</div>
+                            <div><strong>Voltage Range:</strong> ${minVoltage}V - ${currentVoltage.toFixed(3)}V</div>
+                            <div><strong>Status:</strong> Calibration accepted and saved</div>
+                        </div>
+                    </div>
+                `;
+                resultsDiv.style.display = 'block';
+            }
+            
+            const sensorName = sensorType === 'flow' ? 'Flow Sensor' : 'Pressure Sensors';
+            showAlert(`🎉 ${sensorName} calibrated successfully!`, 'success');
+            
+            // Auto-close modal after 3 seconds
+            setTimeout(() => {
+                window.cancelCalibration();
+            }, 3000);
+            
+        } else {
+            throw new Error(data.error || 'Failed to save calibration');
+        }
+    } catch (error) {
+        showAlert(`Calibration failed: ${error.message}`);
+    }
+};
+
+window.cancelCalibration = function() {
+    // Turn off solenoid if it was on for flow calibration
+    if (window.currentSensorType === 'flow') {
+        window.toggleSolenoid(false);
+    }
+    
+    if (window.currentModal) {
+        document.body.removeChild(window.currentModal);
+        window.currentModal = null;
+        window.currentSensorType = null;
+        window.currentReadings = null;
+    }
+};
+
+// ONE-POINT CALIBRATION FUNCTIONS
+// Start calibration
+async function startCalibration(sensorType) {
+    if (!connected) {
+        showAlert('Please connect to System first');
+        return;
+    }
     
     if (testRunning) {
+        showAlert('Please stop the test before calibrating sensors');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${systemBaseUrl}${API_ENDPOINTS.calibrate}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                type: sensorType,
+                mode: 'start'
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            showCalibrationModal(sensorType);
+        } else {
+            throw new Error(data.error || 'Failed to start calibration');
+        }
+    } catch (error) {
+        showAlert(`Calibration start failed: ${error.message}`);
+    }
+}
+
+// Show one-point calibration modal
+function showCalibrationModal(sensorType) {
+    const sensorName = sensorType === 'flow' ? 'Flow Sensor' : 'Pressure Sensors';
+    const units = sensorType === 'flow' ? 'L/min' : 'PSI';
+    const maxValue = sensorType === 'flow' ? '1.0' : '90';
+    
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.8); display: flex;
+        justify-content: center; align-items: center; z-index: 10000;
+    `;
+    
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: #16213e; border: 2px solid #17a2b8; border-radius: 15px;
+        padding: 2rem; max-width: 700px; color: white;
+        box-shadow: 0 10px 30px rgba(23, 162, 184, 0.3);
+        max-height: 90vh; overflow-y: auto;
+    `;
+    
+    content.innerHTML = `
+        <h3 style="color: #17a2b8; margin-bottom: 1rem; text-align: center;">
+            🔧 ${sensorName} One-Point Calibration
+        </h3>
+        
+        <div style="background: rgba(23, 162, 184, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
+            <h4 style="color: #17a2b8; margin: 0;">One-Point Calibration Method</h4>
+            <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">
+                Uses 0.534V as minimum (0 ${units}) and calibrates high point based on your reference
+            </p>
+        </div>
+        
+        ${sensorType === 'flow' ? `
+        <!-- Flow Sensor Manual Control -->
+        <div style="background: rgba(40, 167, 69, 0.1); border: 2px solid #28a745; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+            <h5 style="color: #28a745; margin-bottom: 10px;">🚰 Manual Flow Control</h5>
+            <p style="font-size: 13px; margin-bottom: 15px;">Use manual solenoid control to generate flow for calibration</p>
+            <div style="text-align: center;">
+                <button onclick="window.toggleSolenoid(true)" id="solenoidOnBtn" style="
+                    background: #28a745; color: white; border: none; padding: 10px 20px; 
+                    border-radius: 6px; margin-right: 10px; cursor: pointer;
+                ">
+                    🔓 Turn Solenoid ON
+                </button>
+                <button onclick="window.toggleSolenoid(false)" id="solenoidOffBtn" style="
+                    background: #dc3545; color: white; border: none; padding: 10px 20px; 
+                    border-radius: 6px; cursor: pointer;
+                ">
+                    🔒 Turn Solenoid OFF
+                </button>
+            </div>
+            <div id="solenoidStatus" style="text-align: center; margin-top: 10px; font-weight: bold;">
+                Status: Unknown
+            </div>
+        </div>
+        ` : ''}
+        
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: bold; color: #17a2b8;">
+                Known Reference Value (${units}):
+            </label>
+            <input type="number" id="referenceValue" style="
+                width: 100%; padding: 12px; background: #0a2346; border: 2px solid #17a2b8; 
+                border-radius: 8px; color: white; font-size: 16px; box-sizing: border-box;
+            " value="${sensorType === 'flow' ? '0.5' : '25'}" step="0.01" max="${maxValue}">
+            <div style="font-size: 12px; opacity: 0.8; margin-top: 5px;">
+                Enter the actual measured ${sensorType === 'flow' ? 'flow rate' : 'pressure'} at this calibration point
+            </div>
+        </div>
+        
+        <div style="background: rgba(15, 52, 96, 0.3); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+            <h5 style="color: #00d2ff; margin-bottom: 10px;">📈 Live Readings</h5>
+            <div style="font-family: monospace; font-size: 14px;" id="liveReadings">
+                Refreshing...
+            </div>
+            <button onclick="window.refreshReadings('${sensorType}')" style="
+                background: #17a2b8; color: white; border: none; padding: 8px 16px; 
+                border-radius: 6px; margin-top: 10px; cursor: pointer;
+            ">
+                🔄 Refresh
+            </button>
+        </div>
+        
+        <!-- Calibration Results -->
+        <div id="calibrationResults" style="display: none; margin-bottom: 20px;"></div>
+        
+        <div style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+            <button onclick="window.performCalibration('${sensorType}')" style="
+                background: #28a745; color: white; border: none; padding: 12px 24px; 
+                border-radius: 8px; font-weight: bold; cursor: pointer;
+            ">
+                ✅ Calibrate with This Point
+            </button>
+            
+            <button onclick="window.cancelCalibration()" style="
+                background: #dc3545; color: white; border: none; padding: 12px 24px; 
+                border-radius: 8px; font-weight: bold; cursor: pointer;
+            ">
+                ❌ Cancel
+            </button>
+        </div>
+    `;
+    
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+    
+    // Store modal reference
+    window.currentModal = modal;
+    window.currentSensorType = sensorType;
+    
+    // Start refreshing readings
+    window.refreshReadings(sensorType);
+}
+
+// Show raw voltages
+async function showRawVoltages() {
+    if (!connected) {
+        showAlert('Please connect to System first');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${systemBaseUrl}${API_ENDPOINTS.status}`);
+        const data = await response.json();
+        
+        if (data.success && data.analogReadings) {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0, 0, 0, 0.8); display: flex;
+                justify-content: center; align-items: center; z-index: 10000;
+            `;
+            
+            const content = document.createElement('div');
+            content.style.cssText = `
+                background: #16213e; border: 2px solid #533483; border-radius: 15px;
+                padding: 2rem; max-width: 500px; color: white;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            `;
+            
+            content.innerHTML = `
+                <h3 style="color: #00d2ff; margin-bottom: 1rem; text-align: center;">⚡ Raw Sensor Voltages</h3>
+                
+                <div style="background: rgba(15, 52, 96, 0.3); padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                    <div style="font-family: monospace; line-height: 2; font-size: 16px;">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #533483; padding-bottom: 8px; margin-bottom: 8px;">
+                            <span><strong>Flow Sensor:</strong></span>
+                            <span style="color: #00d2ff;"><strong>${data.analogReadings.flowVoltage.toFixed(3)}V</strong></span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #533483; padding-bottom: 8px; margin-bottom: 8px;">
+                            <span><strong>Pressure Sensor 1:</strong></span>
+                            <span style="color: #ff6b6b;"><strong>${data.analogReadings.inletVoltage.toFixed(3)}V</strong></span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span><strong>Pressure Sensor 2:</strong></span>
+                            <span style="color: #ff6b6b;"><strong>${data.analogReadings.outletVoltage.toFixed(3)}V</strong></span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="background: rgba(255, 193, 7, 0.1); border-left: 4px solid #ffc107; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                    <div style="font-size: 13px; line-height: 1.4;">
+                        <strong>📏 Normal Range:</strong> 0.534V - 3.30V<br>
+                        <strong>🔍 Troubleshooting:</strong><br>
+                        • <strong>< 0.5V:</strong> Sensor disconnected<br>
+                        • <strong>> 3.5V:</strong> Sensor overload<br>
+                        • <strong>Stable:</strong> Normal operation
+                    </div>
+                </div>
+                
+                <div style="text-align: center;">
+                    <button onclick="this.parentElement.parentElement.parentElement.remove()" style="
+                        background: #6c757d; color: white; border: none; padding: 10px 20px; 
+                        border-radius: 8px; cursor: pointer;
+                    ">
+                        ❌ Close
+                    </button>
+                </div>
+            `;
+            
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+        } else {
+            showAlert('Could not retrieve voltage readings from System');
+        }
+    } catch (error) {
+        showAlert(`Error reading voltages: ${error.message}`);
+    }
+}
+
+// Connect to System
+async function connectToSystem() {
+    const ipAddress = document.getElementById('systemAddress').value.trim();
+    if (!ipAddress) {
+        showAlert('Please enter a valid IP address');
+        return;
+    }
+    
+    systemBaseUrl = `http://${ipAddress}`;
+    updateConnectionStatus('connecting', 'Connecting...');
+    
+    try {
+        const response = await fetch(`${systemBaseUrl}${API_ENDPOINTS.status}`, {
+            method: 'GET',
+            timeout: 5000
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                connected = true;
+                updateConnectionStatus('connected', 'Connected');
+                updateSystemInfo(data);
+                enableControls(true);
+                
+                showAlert('Connected to System!', 'success');
+                setTimeout(hideAlert, 3000);
+            } else {
+                throw new Error('System returned error');
+            }
+        } else {
+            throw new Error(`HTTP ${response.status}`);
+        }
+    } catch (error) {
+        connected = false;
+        updateConnectionStatus('disconnected', 'Failed to connect');
+        enableControls(false);
+        showAlert(`Connection failed: ${error.message}`);
+    }
+}
+
+// Update connection status display
+function updateConnectionStatus(status, text) {
+    const statusElement = document.getElementById('connectionStatus');
+    const iconElement = document.getElementById('connectionIcon');
+    const textElement = document.getElementById('connectionText');
+    
+    statusElement.className = `connection-status ${status}`;
+    textElement.textContent = text;
+    
+    switch(status) {
+        case 'connected': iconElement.textContent = '✅'; break;
+        case 'disconnected': iconElement.textContent = '❌'; break;
+        case 'connecting': iconElement.textContent = '🔄'; break;
+    }
+}
+
+// Update System info
+function updateSystemInfo(data) {
+    document.getElementById('systemIP').textContent = data.ip || 'Unknown';
+    document.getElementById('systemFirmware').textContent = data.firmware || 'v2.1';
+    document.getElementById('systemUptime').textContent = formatUptime(data.uptime || 0);
+    document.getElementById('systemMemory').textContent = formatMemory(data.freeMemory || 0);
+}
+
+function formatUptime(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hours}h ${minutes}m ${secs}s`;
+}
+
+function formatMemory(bytes) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+// Enable/disable controls
+function enableControls(enable) {
+    document.getElementById('startBtn').disabled = !enable;
+    document.getElementById('resetBtn').disabled = !enable;
+    document.getElementById('exportBtn').disabled = !enable;
+    document.getElementById('calibrateFlowBtn').disabled = !enable;
+    document.getElementById('calibratePressureBtn').disabled = !enable;
+    document.getElementById('showVoltagesBtn').disabled = !enable;
+    
+    const sensorStatus = document.getElementById('sensorStatus');
+    if (enable) {
+        sensorStatus.textContent = '📡 Sensors: Online';
+        sensorStatus.className = 'status running';
+    } else {
+        sensorStatus.textContent = '📡 Sensors: Offline';
+        sensorStatus.className = 'status stopped';
+    }
+}
+
+// Test control functions
+async function startTest() {
+    if (!connected) {
+        showAlert('Please connect to System first');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${systemBaseUrl}${API_ENDPOINTS.start}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ resume: testPaused })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            if (!testPaused) {
+                // New test - reset everything
+                elapsedSeconds = 0;
+                totalVolume = 0;
+                dataLog = [];
+                lastLogTime = 0;
+                testStartRealTime = Date.now();
+                dataFetchCount = 0;
+                clearChart();
+            }
+            
+            testRunning = true;
+            testPaused = false;
+            
+            // Start data polling at high frequency for real-time display
+            updateInterval = setInterval(getData, 500); // Poll every 500ms for smooth updates
+            updateStatus();
+            hideAlert();
+            
+            console.log(`Test started - Data logging every ${dataLoggingInterval}s`);
+        } else {
+            throw new Error(data.error || 'Start failed');
+        }
+    } catch (error) {
+        showAlert(`Failed to start test: ${error.message}`);
+    }
+}
+
+async function stopTest() {
+    if (!connected) return;
+    
+    try {
+        const response = await fetch(`${systemBaseUrl}${API_ENDPOINTS.stop}`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            testRunning = false;
+            testPaused = true;
+            clearInterval(updateInterval);
+            updateStatus();
+        }
+    } catch (error) {
         testRunning = false;
         testPaused = true;
-        solenoidState = false;
-        digitalWrite(SOLENOID_PIN, LOW);
-        
-        // Reset pressure violation tracking when stopping
-        pressureViolationActive = false;
-        pressureViolationStartTime = 0;
-        
-        Serial.println("Test PAUSED - Pressure monitoring reset");
+        clearInterval(updateInterval);
+        updateStatus();
+        showAlert(`Stop error: ${error.message}`);
+    }
+}
+
+async function resetTest() {
+    if (!connected) return;
+    
+    const hasData = dataLog.length > 0;
+    const confirmationMessage = hasData 
+        ? `Are you sure you want to reset the test?\n\n⚠️ This will permanently delete:\n• ${dataLog.length} data points\n• ${formatDuration(elapsedSeconds)} of test data\n• Current test progress\n\nThis action cannot be undone.`
+        : `Are you sure you want to reset the test?\n\nThis will clear any current test state.`;
+    
+    const confirmed = confirm(confirmationMessage);
+    
+    if (!confirmed) {
+        console.log('Reset cancelled by user');
+        return;
     }
     
-    String response = "{";
-    response += "\"success\":true,";
-    response += "\"message\":\"Test paused successfully\",";
-    response += "\"testRunning\":false,";
-    response += "\"testPaused\":true,";
-    response += "\"valveOpen\":false";
-    response += "}";
-    
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", response);
-}
-
-void handleReset() {
-    Serial.println("RESET endpoint called");
-    
-    // Stop test and reset all values
-    testRunning = false;
-    testPaused = false;
-    testStartTime = 0;
-    pausedDuration = 0;
-    totalVolume = 0.0;
-    solenoidState = false;
-    digitalWrite(SOLENOID_PIN, LOW);
-    
-    // Reset enhanced pressure monitoring
-    pressureViolationActive = false;
-    pressureViolationStartTime = 0;
-    
-    Serial.println("Test RESET - All values and pressure monitoring cleared");
-    
-    String response = "{";
-    response += "\"success\":true,";
-    response += "\"message\":\"System reset successfully\",";
-    response += "\"testRunning\":false,";
-    response += "\"testPaused\":false,";
-    response += "\"valveOpen\":false";
-    response += "}";
-    
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", response);
-}
-
-void handleData() {
-    // Read current sensor values
-    float p1_voltage = readVoltage(PRESSURE1_PIN);
-    float p2_voltage = readVoltage(PRESSURE2_PIN);
-    float flow_voltage = readVoltage(FLOW_SENSOR_PIN);
-    
-    // Scale values
-    float p1_scaled = scaleValue(p1_voltage, pressure1_min, pressure1_max);
-    float p2_scaled = scaleValue(p2_voltage, pressure2_min, pressure2_max);
-    float flow_scaled = scaleValue(flow_voltage, flow_min, flow_max);
-    
-    // Calculate pressure drop and elapsed time
-    float pressureDrop = abs(p1_scaled - p2_scaled);
-    
-    unsigned long elapsedTime = 0;
-    if (testRunning) {
-        elapsedTime = (millis() - testStartTime - pausedDuration) / 1000;
+    try {
+        if (testRunning) await stopTest();
         
-        // Update total volume if test is running
-        if (lastDataTime > 0) {
-            float deltaTime = (millis() - lastDataTime) / 1000.0 / 60.0; // minutes
-            totalVolume += flow_scaled * deltaTime; // L/min * minutes = Liters
+        const response = await fetch(`${systemBaseUrl}${API_ENDPOINTS.reset}`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            testRunning = false;
+            testPaused = false;
+            elapsedSeconds = 0;
+            totalVolume = 0;
+            dataLog = [];
+            lastLogTime = 0;
+            testStartRealTime = 0;
+            dataFetchCount = 0;
+            
+            // Reset pressure monitoring
+            isHighPressureActive = false;
+            highPressureStartTime = 0;
+            
+            document.getElementById('elapsedTime').textContent = '0s';
+            document.getElementById('flowRate').textContent = '0.00';
+            document.getElementById('pressureDrop').textContent = '0.0';
+            document.getElementById('totalVolume').textContent = '0.00';
+            
+            updateDataTable();
+            updateStatus();
+            hideAlert();
+            clearChart();
+            
+            showAlert('Test reset successfully', 'success');
+            setTimeout(hideAlert, 3000);
+            
+            console.log('Test reset - all timing variables cleared');
         }
-        lastDataTime = millis();
-    } else if (testPaused) {
-        elapsedTime = (millis() - testStartTime - pausedDuration) / 1000;
+    } catch (error) {
+        showAlert(`Reset failed: ${error.message}`);
+    }
+}
+
+// Get data from System
+async function getData() {
+    if (!testRunning || !connected) return;
+    
+    try {
+        const response = await fetch(`${systemBaseUrl}${API_ENDPOINTS.data}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            dataFetchCount++;
+            processData(data);
+        }
+    } catch (error) {
+        console.error('Data fetch error:', error);
+    }
+}
+
+// Process data from System
+function processData(data) {
+    // Always update the real-time displays
+    document.getElementById('flowRate').textContent = data.flowRate.toFixed(2);
+    document.getElementById('pressureDrop').textContent = data.pressureDrop.toFixed(1);
+    
+    // Update volume
+    if (data.totalVolume !== undefined) {
+        totalVolume = data.totalVolume * 0.264172;
+    } else {
+        const volumeIncrement = (data.flowRate * 0.5 / 60) * 0.264172; // 0.5s increment
+        totalVolume += volumeIncrement;
+    }
+    document.getElementById('totalVolume').textContent = totalVolume.toFixed(2);
+    
+    // Apply color coding for pressure
+    const pressureElement = document.getElementById('pressureDrop');
+    pressureElement.className = 'metric-value';
+    if (data.pressureDrop >= pressureThreshold) {
+        pressureElement.classList.add('critical');
+    } else if (data.pressureDrop >= pressureThreshold * 0.75) {
+        pressureElement.classList.add('warning');
     }
     
-    // Build response with enhanced pressure monitoring info
-    String response = "{";
-    response += "\"success\":true,";
-    response += "\"timestamp\":" + String(millis()) + ",";
-    response += "\"testRunning\":" + String(testRunning ? "true" : "false") + ",";
-    response += "\"testPaused\":" + String(testPaused ? "true" : "false") + ",";
-    response += "\"elapsedTime\":" + String(elapsedTime) + ",";
-    response += "\"flowRate\":" + String(flow_scaled, 2) + ",";
-    response += "\"pressureDrop\":" + String(pressureDrop, 1) + ",";
-    response += "\"totalVolume\":" + String(totalVolume, 3) + ",";
-    response += "\"valveOpen\":" + String(solenoidState ? "true" : "false") + ",";
-    response += "\"pressure1\":" + String(p1_scaled, 1) + ",";
-    response += "\"pressure2\":" + String(p2_scaled, 1) + ",";
-    response += "\"pressureThreshold\":" + String(pressureThreshold, 1) + ",";
-    
-    // Add enhanced pressure monitoring status
-    response += "\"pressureMonitoring\":{";
-    response += "\"violationActive\":" + String(pressureViolationActive ? "true" : "false") + ",";
-    response += "\"delaySeconds\":5";
-    if (pressureViolationActive) {
-        unsigned long violationDuration = millis() - pressureViolationStartTime;
-        response += ",\"violationDuration\":" + String(violationDuration / 1000.0, 1);
-        response += ",\"remainingTime\":" + String((PRESSURE_DELAY_MS - violationDuration) / 1000.0, 1);
-    }
-    response += "},";
-    
-    // Add analog voltages for debugging
-    response += "\"analogVoltages\":{";
-    response += "\"flow\":" + String(flow_voltage, 3) + ",";
-    response += "\"inlet\":" + String(p1_voltage, 3) + ",";
-    response += "\"outlet\":" + String(p2_voltage, 3);
-    response += "}";
-    
-    response += "}";
-    
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", response);
-}
-
-void handleConfigGet() {
-    String response = "{";
-    response += "\"success\":true,";
-    response += "\"pressureThreshold\":" + String(pressureThreshold, 1) + ",";
-    response += "\"maxPressureThreshold\":80,";
-    response += "\"pressureDelaySeconds\":5,";
-    response += "\"updateInterval\":1,";
-    response += "\"deviceName\":\"ESP32_C6_Enhanced\",";
-    response += "\"scaling\":{";
-    response += "\"pressure1Min\":" + String(pressure1_min, 1) + ",";
-    response += "\"pressure1Max\":" + String(pressure1_max, 1) + ",";
-    response += "\"pressure2Min\":" + String(pressure2_min, 1) + ",";
-    response += "\"pressure2Max\":" + String(pressure2_max, 1) + ",";
-    response += "\"flowMin\":" + String(flow_min, 1) + ",";
-    response += "\"flowMax\":" + String(flow_max, 1);
-    response += "}";
-    response += "}";
-    
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", response);
-}
-
-void handleConfigPost() {
-    if (server.hasArg("plain")) {
-        String body = server.arg("plain");
-        Serial.println("Config update: " + body);
+    // Time-based data logging
+    if (testRunning && shouldLogData()) {
+        const logEntry = {
+            time: elapsedSeconds,
+            flow: data.flowRate,
+            pressure: data.pressureDrop,
+            volume: totalVolume
+        };
         
-        // Parse pressure threshold with enhanced validation
-        int thresholdPos = body.indexOf("\"pressureThreshold\":");
-        if (thresholdPos >= 0) {
-            int commaPos = body.indexOf(',', thresholdPos);
-            if (commaPos == -1) commaPos = body.indexOf('}', thresholdPos);
-            float newThreshold = body.substring(thresholdPos + 20, commaPos).toFloat();
-            
-            // Enhanced validation: 5-80 PSI range
-            if (newThreshold >= 5.0 && newThreshold <= 80.0) {
-                pressureThreshold = newThreshold;
-                
-                // Reset pressure violation tracking when threshold changes
-                pressureViolationActive = false;
-                pressureViolationStartTime = 0;
-                
-                Serial.println("Pressure threshold updated to: " + String(pressureThreshold, 1) + " PSI");
-                Serial.println("Pressure monitoring reset due to threshold change");
-            } else {
-                Serial.println("Invalid pressure threshold: " + String(newThreshold, 1) + 
-                             " PSI. Must be 5-80 PSI. Current: " + String(pressureThreshold, 1));
-            }
+        dataLog.push(logEntry);
+        lastLogTime = elapsedSeconds;
+        
+        // Update chart with new data
+        updateChart(logEntry.time, logEntry.flow, logEntry.pressure);
+        
+        if (dataLog.length > 2000) {
+            dataLog.shift();
         }
+        
+        updateDataTable();
+        console.log(`Data logged at ${elapsedSeconds}s (interval: ${dataLoggingInterval}s)`);
     }
     
-    String response = "{";
-    response += "\"success\":true,";
-    response += "\"message\":\"Configuration updated\",";
-    response += "\"pressureThreshold\":" + String(pressureThreshold, 1) + ",";
-    response += "\"maxPressureThreshold\":80,";
-    response += "\"pressureDelaySeconds\":5";
-    response += "}";
-    
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", response);
-}
-
-void handleCalibrate() {
-    if (server.hasArg("plain")) {
-        String body = server.arg("plain");
-        Serial.println("Calibration request: " + body);
-        
-        // Parse calibration data
-        String type = "";
-        String mode = "";
-        float referenceValue = 0.0;
-        float referenceVoltage = 0.0;
-        
-        int typePos = body.indexOf("\"type\":\"");
-        if (typePos >= 0) {
-            int endPos = body.indexOf("\"", typePos + 8);
-            type = body.substring(typePos + 8, endPos);
-        }
-        
-        int modePos = body.indexOf("\"mode\":\"");
-        if (modePos >= 0) {
-            int endPos = body.indexOf("\"", modePos + 8);
-            mode = body.substring(modePos + 8, endPos);
-        }
-        
-        // Parse one-point calibration parameters
-        int refValuePos = body.indexOf("\"referenceValue\":");
-        if (refValuePos >= 0) {
-            int commaPos = body.indexOf(',', refValuePos);
-            if (commaPos == -1) commaPos = body.indexOf('}', refValuePos);
-            referenceValue = body.substring(refValuePos + 17, commaPos).toFloat();
-        }
-        
-        int refVoltagePos = body.indexOf("\"referenceVoltage\":");
-        if (refVoltagePos >= 0) {
-            int commaPos = body.indexOf(',', refVoltagePos);
-            if (commaPos == -1) commaPos = body.indexOf('}', refVoltagePos);
-            referenceVoltage = body.substring(refVoltagePos + 19, commaPos).toFloat();
-        }
-        
-        Serial.println("Enhanced Calibration Request:");
-        Serial.println("Type: " + type);
-        Serial.println("Mode: " + mode);
-        Serial.println("Reference Value: " + String(referenceValue, 3));
-        Serial.println("Reference Voltage: " + String(referenceVoltage, 3));
-        
-        // Perform one-point calibration
-        if (mode == "onepoint" && referenceValue > 0 && referenceVoltage > 0.534) {
-            const float MIN_VOLTAGE = 0.534;
-            const float MAX_VOLTAGE = 3.30;
-            
-            // Calculate new scaling based on one-point calibration
-            // Formula: newMax = referenceValue * (MAX_VOLTAGE - MIN_VOLTAGE) / (referenceVoltage - MIN_VOLTAGE)
-            float voltageRange = referenceVoltage - MIN_VOLTAGE;
-            float newMaxValue = referenceValue * (MAX_VOLTAGE - MIN_VOLTAGE) / voltageRange;
-            
-            if (type == "flow") {
-                flow_max = newMaxValue;
-                Serial.println("✅ FLOW SENSOR CALIBRATED:");
-                Serial.println("  New Range: 0 - " + String(flow_max, 2) + " L/min");
-                Serial.println("  Reference Point: " + String(referenceValue, 2) + " L/min at " + String(referenceVoltage, 3) + "V");
-                Serial.println("  Voltage Range: " + String(MIN_VOLTAGE, 3) + "V - " + String(MAX_VOLTAGE, 3) + "V");
-                
-            } else if (type == "pressure") {
-                pressure1_max = newMaxValue;
-                pressure2_max = newMaxValue;
-                Serial.println("✅ PRESSURE SENSORS CALIBRATED:");
-                Serial.println("  New Range: 0 - " + String(pressure1_max, 1) + " PSI");
-                Serial.println("  Reference Point: " + String(referenceValue, 1) + " PSI at " + String(referenceVoltage, 3) + "V");
-                Serial.println("  Voltage Range: " + String(MIN_VOLTAGE, 3) + "V - " + String(MAX_VOLTAGE, 3) + "V");
-            }
-            
-            Serial.println("🎉 One-point calibration completed successfully!");
-        } else if (mode == "start") {
-            Serial.println("Calibration mode started for " + type + " sensor");
+    // Check for auto-shutdown with 5-second delay
+    if (data.pressureDrop >= pressureThreshold) {
+        if (!isHighPressureActive) {
+            // First time hitting threshold - start timer
+            isHighPressureActive = true;
+            highPressureStartTime = Date.now();
+            showAlert(`⚠️ HIGH PRESSURE: ${data.pressureDrop.toFixed(1)} PSI - Will auto-stop in 5 seconds if sustained`);
         } else {
-            Serial.println("Invalid calibration parameters or mode");
+            // Check if 5 seconds have passed
+            const timeSinceHighPressure = (Date.now() - highPressureStartTime) / 1000;
+            if (timeSinceHighPressure >= 5) {
+                showAlert(`🚨 CRITICAL: Pressure sustained at ${data.pressureDrop.toFixed(1)} PSI for 5+ seconds!`);
+                stopTest();
+                isHighPressureActive = false;
+            } else {
+                const remainingTime = Math.ceil(5 - timeSinceHighPressure);
+                showAlert(`🚨 HIGH PRESSURE: ${data.pressureDrop.toFixed(1)} PSI - Auto-stop in ${remainingTime}s`);
+            }
+        }
+    } else {
+        // Pressure is below threshold - reset timer
+        if (isHighPressureActive) {
+            isHighPressureActive = false;
+            showAlert(`✅ Pressure normalized: ${data.pressureDrop.toFixed(1)} PSI`, 'success');
+            setTimeout(hideAlert, 2000);
+        } else if (data.pressureDrop >= pressureThreshold * 0.75) {
+            showAlert(`⚠️ WARNING: Pressure at ${data.pressureDrop.toFixed(1)} PSI`);
+        } else {
+            hideAlert();
         }
     }
-    
-    String response = "{";
-    response += "\"success\":true,";
-    response += "\"message\":\"Enhanced calibration process completed\"";
-    response += "}";
-    
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", response);
 }
 
-void handleSolenoid() {
-    if (server.hasArg("plain")) {
-        String body = server.arg("plain");
-        
-        // Simple JSON parsing - look for "state":true or "state":false
-        if (body.indexOf("\"state\":true") >= 0) {
-            solenoidState = true;
-            digitalWrite(SOLENOID_PIN, HIGH);
-            Serial.println("Manual Solenoid ON");
-        } else if (body.indexOf("\"state\":false") >= 0) {
-            solenoidState = false;
-            digitalWrite(SOLENOID_PIN, LOW);
-            Serial.println("Manual Solenoid OFF");
-        }
+// Proper time-based logging decision
+function shouldLogData() {
+    if (dataLog.length === 0) {
+        return true;
     }
     
-    String response = "{";
-    response += "\"success\":true,";
-    response += "\"newState\":" + String(solenoidState ? "true" : "false") + ",";
-    response += "\"message\":\"Solenoid " + String(solenoidState ? "ON" : "OFF") + "\"";
-    response += "}";
-    
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", response);
+    const timeSinceLastLog = elapsedSeconds - lastLogTime;
+    return timeSinceLastLog >= dataLoggingInterval;
 }
 
-void handleScaling() {
-    if (server.hasArg("plain")) {
-        String body = server.arg("plain");
-        Serial.println("Received scaling data: " + body);
-        
-        // Simple parsing for scaling values
-        int p1MinPos = body.indexOf("\"pressure1Min\":");
-        int p1MaxPos = body.indexOf("\"pressure1Max\":");
-        int p2MinPos = body.indexOf("\"pressure2Min\":");
-        int p2MaxPos = body.indexOf("\"pressure2Max\":");
-        int fMinPos = body.indexOf("\"flowMin\":");
-        int fMaxPos = body.indexOf("\"flowMax\":");
-        
-        if (p1MinPos >= 0) {
-            int commaPos = body.indexOf(',', p1MinPos);
-            if (commaPos == -1) commaPos = body.indexOf('}', p1MinPos);
-            pressure1_min = body.substring(p1MinPos + 15, commaPos).toFloat();
-        }
-        if (p1MaxPos >= 0) {
-            int commaPos = body.indexOf(',', p1MaxPos);
-            if (commaPos == -1) commaPos = body.indexOf('}', p1MaxPos);
-            pressure1_max = body.substring(p1MaxPos + 15, commaPos).toFloat();
-        }
-        if (p2MinPos >= 0) {
-            int commaPos = body.indexOf(',', p2MinPos);
-            if (commaPos == -1) commaPos = body.indexOf('}', p2MinPos);
-            pressure2_min = body.substring(p2MinPos + 15, commaPos).toFloat();
-        }
-        if (p2MaxPos >= 0) {
-            int commaPos = body.indexOf(',', p2MaxPos);
-            if (commaPos == -1) commaPos = body.indexOf('}', p2MaxPos);
-            pressure2_max = body.substring(p2MaxPos + 15, commaPos).toFloat();
-        }
-        if (fMinPos >= 0) {
-            int commaPos = body.indexOf(',', fMinPos);
-            if (commaPos == -1) commaPos = body.indexOf('}', fMinPos);
-            flow_min = body.substring(fMinPos + 10, commaPos).toFloat();
-        }
-        if (fMaxPos >= 0) {
-            int commaPos = body.indexOf(',', fMaxPos);
-            if (commaPos == -1) commaPos = body.indexOf('}', fMaxPos);
-            flow_max = body.substring(fMaxPos + 10, commaPos).toFloat();
-        }
-        
-        Serial.println("Enhanced scaling updated:");
-        Serial.println("P1: " + String(pressure1_min) + " - " + String(pressure1_max));
-        Serial.println("P2: " + String(pressure2_min) + " - " + String(pressure2_max));
-        Serial.println("Flow: " + String(flow_min) + " - " + String(flow_max));
+// Debug information display
+function updateDebugInfo() {
+    const debugVisible = document.getElementById('debugInfo').style.display !== 'none';
+    if (!debugVisible) return;
+    
+    const now = Date.now();
+    const dataFetchRate = testStartRealTime > 0 ? (dataFetchCount / ((now - testStartRealTime) / 1000)).toFixed(1) : '0';
+    const nextLogDue = lastLogTime + dataLoggingInterval;
+    
+    document.getElementById('debugPollingRate').textContent = '500';
+    document.getElementById('debugDataFetch').textContent = dataFetchRate;
+    document.getElementById('debugLastLog').textContent = lastLogTime.toString();
+    document.getElementById('debugNextLog').textContent = nextLogDue.toString();
+}
+
+function toggleDebugInfo() {
+    const debugInfo = document.getElementById('debugInfo');
+    debugInfo.style.display = debugInfo.style.display === 'none' ? 'block' : 'none';
+}
+
+// Initialize chart
+function initializeChart() {
+    const canvas = document.getElementById('dataChart');
+    const ctx = canvas.getContext('2d');
+    
+    // Set canvas size properly
+    const container = canvas.parentElement;
+    canvas.width = container.offsetWidth - 60;
+    canvas.height = 350;
+    
+    chart = {
+        canvas: canvas,
+        ctx: ctx,
+        width: canvas.width,
+        height: canvas.height,
+        padding: { top: 40, right: 120, bottom: 60, left: 120 }
+    };
+    
+    drawChart();
+    
+    // Redraw on window resize
+    window.addEventListener('resize', function() {
+        setTimeout(() => {
+            canvas.width = container.offsetWidth - 60;
+            chart.width = canvas.width;
+            drawChart();
+        }, 100);
+    });
+}
+
+// Draw chart
+function drawChart() {
+    if (!chart) return;
+    
+    const { ctx, width, height, padding } = chart;
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    
+    // Clear canvas with gradient background
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, '#0f3460');
+    gradient.addColorStop(1, '#0a2346');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+    
+    // Draw grid lines
+    ctx.strokeStyle = 'rgba(83, 52, 131, 0.3)';
+    ctx.lineWidth = 1;
+    
+    // Vertical grid lines
+    for (let i = 0; i <= 10; i++) {
+        const x = padding.left + (chartWidth * i / 10);
+        ctx.beginPath();
+        ctx.moveTo(x, padding.top);
+        ctx.lineTo(x, height - padding.bottom);
+        ctx.stroke();
     }
     
-    String response = "{\"success\":true,\"message\":\"Enhanced scaling updated\"}";
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", response);
+    // Horizontal grid lines
+    for (let i = 0; i <= 8; i++) {
+        const y = padding.top + (chartHeight * i / 8);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+    }
+    
+    // Draw axes
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(padding.left, padding.top);
+    ctx.lineTo(padding.left, height - padding.bottom);
+    ctx.lineTo(width - padding.right, height - padding.bottom);
+    ctx.stroke();
+    
+    // Draw labels
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    
+    // X-axis label
+    ctx.fillText('Time (seconds)', width / 2, height - 15);
+    
+    // Y-axis labels (vertical text)
+    ctx.save();
+    ctx.translate(25, height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = '#00d2ff';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Flow Rate (L/min)', 0, 0);
+    ctx.restore();
+    
+    ctx.save();
+    ctx.translate(width - 25, height / 2);
+    ctx.rotate(Math.PI / 2);
+    ctx.fillStyle = '#ff6b6b';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Pressure Drop (PSI)', 0, 0);
+    ctx.restore();
+    
+    // Draw data if available
+    if (chartData.labels.length > 0) {
+        drawDataLines();
+    } else {
+        // Draw placeholder text
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Start test to view real-time data', width / 2, height / 2);
+    }
 }
+
+// Draw data lines
+function drawDataLines() {
+    const { ctx, width, height, padding } = chart;
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    
+    if (chartData.labels.length < 1) return;
+    
+    // Get evenly spaced data for display
+    const displayData = getEvenlySpacedData(15);
+    
+    if (displayData.labels.length < 1) return;
+    
+    const minTime = 0;
+    const maxTime = Math.max(...displayData.labels);
+    const timeRange = Math.max(1, maxTime);
+    
+    const maxFlow = Math.max(0.1, Math.max(...displayData.flow) * 1.1);
+    const maxPressure = Math.max(1, Math.max(...displayData.pressure) * 1.1);
+    
+    // Draw flow line
+    ctx.strokeStyle = '#00d2ff';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = '#00d2ff';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    
+    let firstPoint = true;
+    for (let i = 0; i < displayData.labels.length; i++) {
+        const x = padding.left + (displayData.labels[i] / timeRange) * chartWidth;
+        const y = padding.top + (1 - (displayData.flow[i] / maxFlow)) * chartHeight;
+        
+        if (firstPoint) {
+            ctx.moveTo(x, y);
+            firstPoint = false;
+        } else {
+            ctx.lineTo(x, y);
+        }
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Draw pressure line
+    ctx.strokeStyle = '#ff6b6b';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#ff6b6b';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    
+    firstPoint = true;
+    for (let i = 0; i < displayData.labels.length; i++) {
+        const x = padding.left + (displayData.labels[i] / timeRange) * chartWidth;
+        const y = padding.top + (1 - (displayData.pressure[i] / maxPressure)) * chartHeight;
+        
+        if (firstPoint) {
+            ctx.moveTo(x, y);
+            firstPoint = false;
+        } else {
+            ctx.lineTo(x, y);
+        }
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Draw data points
+    displayData.labels.forEach((time, i) => {
+        const x = padding.left + (time / timeRange) * chartWidth;
+        
+        // Flow points
+        const flowY = padding.top + (1 - (displayData.flow[i] / maxFlow)) * chartHeight;
+        ctx.shadowColor = '#00d2ff';
+        ctx.shadowBlur = 5;
+        ctx.fillStyle = '#00d2ff';
+        ctx.beginPath();
+        ctx.arc(x, flowY, 4, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Pressure points
+        const pressureY = padding.top + (1 - (displayData.pressure[i] / maxPressure)) * chartHeight;
+        ctx.shadowColor = '#ff6b6b';
+        ctx.shadowBlur = 5;
+        ctx.fillStyle = '#ff6b6b';
+        ctx.beginPath();
+        ctx.arc(x, pressureY, 4, 0, 2 * Math.PI);
+        ctx.fill();
+    });
+    ctx.shadowBlur = 0;
+    
+    // Draw scale labels
+    drawScaleLabels(timeRange, maxTime, maxFlow, maxPressure, displayData);
+}
+
+// Draw scale labels
+function drawScaleLabels(timeRange, maxTime, maxFlow, maxPressure, displayData) {
+    const { ctx, width, height, padding } = chart;
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    
+    // X-axis time scale
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    
+    const maxTimeLabels = Math.min(8, displayData.labels.length);
+    const timeStep = Math.max(1, Math.floor(displayData.labels.length / maxTimeLabels));
+    
+    for (let i = 0; i < displayData.labels.length; i += timeStep) {
+        if (i < displayData.labels.length) {
+            const timeValue = displayData.labels[i];
+            const x = padding.left + (timeValue / timeRange) * chartWidth;
+            const y = height - padding.bottom + 20;
+            
+            let timeLabel;
+            if (timeValue < 60) {
+                timeLabel = Math.round(timeValue) + 's';
+            } else if (timeValue < 3600) {
+                const minutes = Math.floor(timeValue / 60);
+                const seconds = Math.round(timeValue % 60);
+                timeLabel = `${minutes}m${seconds > 0 ? seconds + 's' : ''}`;
+            } else {
+                const hours = Math.floor(timeValue / 3600);
+                const minutes = Math.floor((timeValue % 3600) / 60);
+                timeLabel = `${hours}h${minutes > 0 ? minutes + 'm' : ''}`;
+            }
+            
+            ctx.fillText(timeLabel, x, y);
+        }
+    }
+    
+    // Y-axis flow scale (left)
+    ctx.fillStyle = '#00d2ff';
+    ctx.textAlign = 'right';
+    ctx.font = '12px Arial';
+    for (let i = 0; i <= 5; i++) {
+        const value = (maxFlow * i / 5).toFixed(1);
+        const y = padding.top + (1 - (i / 5)) * chartHeight + 4;
+        ctx.fillText(value, padding.left - 15, y);
+    }
+    
+    // Y-axis pressure scale (right)
+    ctx.fillStyle = '#ff6b6b';
+    ctx.textAlign = 'left';
+    ctx.font = '12px Arial';
+    for (let i = 0; i <= 5; i++) {
+        const value = (maxPressure * i / 5).toFixed(1);
+        const y = padding.top + (1 - (i / 5)) * chartHeight + 4;
+        ctx.fillText(value, width - padding.right + 15, y);
+    }
+}
+
+// Update chart data
+function updateChart(time, flow, pressure) {
+    chartData.labels.push(time);
+    chartData.flow.push(flow);
+    chartData.pressure.push(pressure);
+    
+    drawChart();
+}
+
+// Get evenly spaced data points for display
+function getEvenlySpacedData(maxPoints = 15) {
+    if (chartData.labels.length <= maxPoints) {
+        return {
+            labels: [...chartData.labels],
+            flow: [...chartData.flow],
+            pressure: [...chartData.pressure]
+        };
+    }
+    
+    const totalPoints = chartData.labels.length;
+    const step = (totalPoints - 1) / (maxPoints - 1);
+    
+    const spacedLabels = [];
+    const spacedFlow = [];
+    const spacedPressure = [];
+    
+    for (let i = 0; i < maxPoints; i++) {
+        let index;
+        if (i === maxPoints - 1) {
+            index = totalPoints - 1;
+        } else {
+            index = Math.round(i * step);
+        }
+        
+        spacedLabels.push(chartData.labels[index]);
+        spacedFlow.push(chartData.flow[index]);
+        spacedPressure.push(chartData.pressure[index]);
+    }
+    
+    return {
+        labels: spacedLabels,
+        flow: spacedFlow,
+        pressure: spacedPressure
+    };
+}
+
+// Clear chart data
+function clearChart() {
+    chartData = { labels: [], flow: [], pressure: [] };
+    drawChart();
+}
+
+// Update UI status
+function updateStatus() {
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const testStatus = document.getElementById('testStatus');
+    const valveStatus = document.getElementById('valveStatus');
+    
+    if (testRunning) {
+        startBtn.disabled = true;
+        startBtn.textContent = '▶ Start Test';
+        stopBtn.disabled = false;
+        stopBtn.textContent = '⏸ Pause Test';
+        testStatus.textContent = '▶ Running';
+        testStatus.className = 'status running';
+        valveStatus.textContent = '🚪 Valve: Open';
+        valveStatus.className = 'status running';
+    } else if (testPaused) {
+        startBtn.disabled = false;
+        startBtn.textContent = '▶ Resume Test';
+        stopBtn.disabled = true;
+        stopBtn.textContent = '⏸ Pause Test';
+        testStatus.textContent = '⏸ Paused';
+        testStatus.className = 'status paused';
+        valveStatus.textContent = '🚪 Valve: Closed';
+        valveStatus.className = 'status paused';
+    } else {
+        startBtn.disabled = !connected;
+        startBtn.textContent = '▶ Start Test';
+        stopBtn.disabled = true;
+        stopBtn.textContent = '⏸ Pause Test';
+        testStatus.textContent = '⏹ Stopped';
+        testStatus.className = 'status stopped';
+        valveStatus.textContent = '🚪 Valve: Closed';
+        valveStatus.className = 'status stopped';
+    }
+}
+
+// Update data table
+function updateDataTable() {
+    const tbody = document.getElementById('dataTableBody');
+    
+    if (dataLog.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4">🔌 Connect to System and start test to begin logging</td></tr>';
+        return;
+    }
+    
+    const recentData = dataLog.slice(-15).reverse();
+    tbody.innerHTML = recentData.map(row => `
+        <tr>
+            <td>${formatTimeHMS(row.time)}</td>
+            <td>${row.flow.toFixed(2)}</td>
+            <td class="${row.pressure >= pressureThreshold ? 'critical' : row.pressure >= pressureThreshold * 0.75 ? 'warning' : ''}">${row.pressure.toFixed(1)}</td>
+            <td>${row.volume.toFixed(2)}</td>
+        </tr>
+    `).join('');
+}
+
+// Alert functions
+function showAlert(message, type = 'error') {
+    const alert = document.getElementById('alert');
+    const alertMessage = document.getElementById('alertMessage');
+    alertMessage.textContent = message;
+    alert.classList.add('active');
+    
+    if (type === 'success') {
+        alert.style.borderColor = '#28a745';
+        alert.style.color = '#28a745';
+        alert.style.background = 'rgba(40, 167, 69, 0.15)';
+    } else {
+        alert.style.borderColor = '#dc3545';
+        alert.style.color = '#dc3545';
+        alert.style.background = 'rgba(220, 53, 69, 0.15)';
+    }
+}
+
+function hideAlert() {
+    const alert = document.getElementById('alert');
+    alert.classList.remove('active');
+}
+
+// Export data function
+function exportData() {
+    if (dataLog.length === 0) {
+        showAlert('No data to export. Please run a test first.');
+        return;
+    }
+    
+    // Calculate summary statistics
+    const totalTime = dataLog.length > 0 ? dataLog[dataLog.length - 1].time : 0;
+    const avgFlow = dataLog.reduce((sum, row) => sum + row.flow, 0) / dataLog.length;
+    const maxPressure = Math.max(...dataLog.map(row => row.pressure));
+    const finalVolume = dataLog.length > 0 ? dataLog[dataLog.length - 1].volume : 0;
+    
+    // Simple CSV export
+    const csvHeaders = [
+        'Timestamp (ISO)', 'Elapsed Time (s)', 'Elapsed Time (HH:MM:SS)', 
+        'Flow Rate (L/min)', 'Pressure Drop (PSI)', 'Total Volume (gal)'
+    ];
+    
+    const csvRows = dataLog.map(row => [
+        new Date(Date.now() - (totalTime - row.time) * 1000).toISOString(),
+        row.time,
+        formatTimeHMS(row.time),
+        row.flow.toFixed(3),
+        row.pressure.toFixed(2),
+        row.volume.toFixed(4)
+    ].join(','));
+    
+    const csvContent = [
+        `# IoT Column Stand - Data Export`,
+        `# Generated: ${new Date().toISOString()}`,
+        `# Test Duration: ${formatDuration(totalTime)}`,
+        `# Total Data Points: ${dataLog.length}`,
+        `# Data Logging Interval: ${dataLoggingInterval} seconds`,
+        `# Average Flow Rate: ${avgFlow.toFixed(3)} L/min`,
+        `# Maximum Pressure Drop: ${maxPressure.toFixed(2)} PSI`,
+        `# Final Volume: ${finalVolume.toFixed(4)} gallons`,
+        `# Pressure Threshold: ${pressureThreshold} PSI`,
+        `#`,
+        csvHeaders.join(','),
+        ...csvRows
+    ].join('\n');
+    
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '');
+    const filename = `IoT_ColumnStand_${dateStr}_${timeStr}_${dataLoggingInterval}s-interval.csv`;
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    
+    showAlert(`✅ CSV file downloaded: ${filename}`, 'success');
+    setTimeout(hideAlert, 3000);
+}
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    if (connectionCheckInterval) clearInterval(connectionCheckInterval);
+    if (updateInterval) clearInterval(updateInterval);
+    if (clockInterval) clearInterval(clockInterval);
+});
+
+console.log('IoT Column Stand Monitor - One-Point Calibration System Loaded');
+
+// Update functions for the new buttons
+async function updatePressureThreshold() {
+    if (!connected) {
+        showAlert('Please connect to System first');
+        return;
+    }
+    
+    const newThreshold = parseFloat(document.getElementById('pressureThreshold').value);
+    if (isNaN(newThreshold) || newThreshold < 5 || newThreshold > 80) {
+        showAlert('Pressure threshold must be between 5 and 80 PSI');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${systemBaseUrl}/api/config`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ 
+                pressureThreshold: newThreshold 
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            pressureThreshold = newThreshold;
+            showAlert(`✅ Pressure threshold updated to ${newThreshold} PSI`, 'success');
+            setTimeout(hideAlert, 2000);
+        } else {
+            throw new Error(data.error || 'Failed to update threshold');
+        }
+    } catch (error) {
+        showAlert(`Failed to update pressure threshold: ${error.message}`);
+    }
+}
+
+async function updateDataInterval() {
+    if (!connected) {
+        showAlert('Please connect to System first');
+        return;
+    }
+    
+    const newInterval = parseFloat(document.getElementById('updateInterval').value);
+    if (isNaN(newInterval) || newInterval < 0.5 || newInterval > 600) {
+        showAlert('Data logging interval must be between 0.5 and 600 seconds');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${systemBaseUrl}/api/config`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ 
+                updateInterval: newInterval 
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            dataLoggingInterval = newInterval;
+            console.log(`Data logging interval updated to ${dataLoggingInterval} seconds`);
+            
+            // Reset timing variables when interval changes
+            if (testRunning) {
+                lastLogTime = elapsedSeconds;
+                console.log(`Reset log timing - next log due at ${lastLogTime + dataLoggingInterval}s`);
+            }
+            
+            showAlert(`✅ Data logging interval updated to ${newInterval} seconds`, 'success');
+            setTimeout(hideAlert, 2000);
+        } else {
+            throw new Error(data.error || 'Failed to update interval');
+        }
+    } catch (error) {
+        showAlert(`Failed to update data interval: ${error.message}`);
+    }
+}
+</script>
+</body>
+</html>
